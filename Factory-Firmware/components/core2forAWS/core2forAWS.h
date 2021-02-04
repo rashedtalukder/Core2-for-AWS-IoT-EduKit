@@ -9,6 +9,7 @@
 #include "lvgl/lvgl.h"
 #include "disp_driver.h"
 #include "disp_spi.h"
+extern SemaphoreHandle_t xGuiSemaphore;
 #endif
 
 #if CONFIG_SOFTWARE_FT6336U_SUPPORT
