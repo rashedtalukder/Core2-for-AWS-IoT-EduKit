@@ -25,7 +25,7 @@
 
 #pragma once
 
-#define POWER_TAB_NAME "POWER"
+#define POWER_TAB_NAME "AXP192-POWER"
 
 extern lv_obj_t *power_tab;
 

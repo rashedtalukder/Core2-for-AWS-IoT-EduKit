@@ -16,6 +16,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <driver/spi_master.h>
+#include <freertos/semphr.h>
 
 /*********************
  *      DEFINES
@@ -50,6 +51,11 @@ typedef struct _disp_spi_read_data {
     } __attribute__((packed));
 } disp_spi_read_data __attribute__((aligned(4)));
 
+/*************************
+ *      GLOBAL VARIABLES
+ ***********************/
+extern SemaphoreHandle_t spi_mutex;
+
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
@@ -68,6 +74,8 @@ static inline void disp_spi_send_colors(uint8_t *data, size_t length) {
         DISP_SPI_SEND_QUEUED | DISP_SPI_SIGNAL_FLUSH,
         NULL, 0);
 }
+
+void spi_poll();
 
 /**********************
  *      MACROS

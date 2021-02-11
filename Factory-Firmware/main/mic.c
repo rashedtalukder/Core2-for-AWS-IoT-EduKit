@@ -44,9 +44,7 @@
 #define CANVAS_WIDTH 240
 #define CANVAS_HEIGHT 60
 
-static long map(long x, long in_min, long in_max, long out_min, long out_max);
-static void microphoneTask(void * pvParameters);
-static void fft_show_task(void * pvParameters);
+// static const char *TAG = MIC_TAB_NAME;
 
 static long map(long x, long in_min, long in_max, long out_min, long out_max) {
     long divisor = (in_max - in_min);
@@ -92,7 +90,7 @@ void display_microphone_tab(lv_obj_t *tv){
     xTaskCreatePinnedToCore(fft_show_task, "fftShowTask", 4096 * 2, (void *)mic_tab, 1, &FFT_handle, 1);
 }
 
-static void microphoneTask(void *pvParameters) {
+void microphoneTask(void *pvParameters) {
     vTaskSuspend(NULL);
 
     static int8_t i2s_readraw_buff[1024];
@@ -126,7 +124,7 @@ static void microphoneTask(void *pvParameters) {
     vTaskDelete(NULL); // Should never get to here...
 }
 
-static void fft_show_task(void * pvParameters) {    
+void fft_show_task(void * pvParameters) {    
     QueueHandle_t mic_queue = xQueueCreate(2, sizeof(uint8_t *));
     xTaskCreatePinnedToCore(microphoneTask, "microphoneTask", 4096 * 2, (void *) mic_queue, 1, &mic_handle, 1);
     

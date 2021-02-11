@@ -73,12 +73,15 @@ void display_touch_tab(lv_obj_t *tv){
     /* Create the sensor information label object */
     lv_obj_t *body_lbl = lv_label_create(touch_bg, NULL);
     lv_label_set_long_mode(body_lbl, LV_LABEL_LONG_BREAK);
-    lv_label_set_static_text(body_lbl, "The FT6336U is a capacitive touch panel controller that provides X and Y coordinates for touch input.");
+    lv_label_set_static_text(body_lbl, "The FT6336U is a capacitive touch panel controller that provides X and Y coordinates for touch input."
+        "\n\n\n\nPress the touch buttons below.");
     lv_obj_set_width(body_lbl, 252);
     lv_obj_align(body_lbl, touch_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40);
     
     coordinates_lbl = lv_label_create(touch_bg, NULL);
-    lv_obj_align(coordinates_lbl, touch_bg, LV_ALIGN_IN_BOTTOM_LEFT, 20, -30);
+    lv_label_set_text(coordinates_lbl, "X: 000,   Y: 000      Pressed: 0");
+    lv_label_set_align(coordinates_lbl, LV_LABEL_ALIGN_CENTER);
+    lv_obj_align(coordinates_lbl, touch_bg, LV_ALIGN_CENTER, 0, 44);
 
     /*Create an array for the points of the line*/
     static lv_point_t line_points[] = { {20, 0}, {70, 0} };
@@ -133,7 +136,7 @@ void touch_task(void *pvParameters){
 
         FT6336U_GetTouch(&x, &y, &press);
         char label_stash[200];
-        sprintf(label_stash, "X: %d,   Y: %d      Pressed: %d\r\n", x, y, press);
+        sprintf(label_stash, "X: %d,   Y: %d      Pressed: %d", x, y, press);
 
         xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         lv_label_set_text(coordinates_lbl, label_stash);

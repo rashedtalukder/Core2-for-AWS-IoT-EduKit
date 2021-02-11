@@ -25,8 +25,10 @@
 
 #pragma once
 
-#define MICROPHONE_TAB_NAME "MIC"
+#define MICROPHONE_TAB_NAME "SPM1423-MIC"
 
 TaskHandle_t mic_handle, FFT_handle;
 
 void display_microphone_tab(lv_obj_t *tv);
+void microphoneTask(void * pvParameters);
+void fft_show_task(void * pvParameters);

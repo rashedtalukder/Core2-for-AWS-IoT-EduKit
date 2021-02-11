@@ -113,7 +113,7 @@ void display_LED_bar_tab(lv_obj_t *tv){
 
     xSemaphoreGive(xGuiSemaphore);
 
-    xTaskCreatePinnedToCore(LED_bar_task, "LEDBarTask", configMINIMAL_STACK_SIZE * 2, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(sk6812_task, "sk6812Task", configMINIMAL_STACK_SIZE * 2, NULL, 1, NULL, 1);
 }
 
 static void update_color(){
@@ -124,10 +124,7 @@ static void update_color(){
 
 static void hue_event_handler(lv_obj_t *slider, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
-        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         red = lv_slider_get_value(slider);
-        xSemaphoreGive(xGuiSemaphore);
-
         update_color();
         ESP_LOGI(TAG, "Red: %d Color: %d", red, color);
     }
@@ -135,10 +132,7 @@ static void hue_event_handler(lv_obj_t *slider, lv_event_t event){
 
 static void sat_event_handler(lv_obj_t *slider, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
-        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         green = lv_slider_get_value(slider);
-        xSemaphoreGive(xGuiSemaphore);
-
         update_color();
         ESP_LOGI(TAG, "Green: %d", green);
     }
@@ -146,16 +140,13 @@ static void sat_event_handler(lv_obj_t *slider, lv_event_t event){
 
 static void val_event_handler(lv_obj_t *slider, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
-        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         blue = lv_slider_get_value(slider);
-        xSemaphoreGive(xGuiSemaphore);
-        
         update_color();
         ESP_LOGI(TAG, "Blue: %d", blue);
     }
 }
 
-void LED_bar_task(void *pvParameters) {
+void sk6812_task(void *pvParameters) {
     lock = xSemaphoreCreateMutex();
     while (1) {
         Core2ForAWS_Sk6812_Clear();

@@ -41,10 +41,14 @@
 
 #define DEFAULT_SCAN_LIST_SIZE 6
 
-static const char *TAG = WIFI_TAB_NAME;
+static lv_obj_t *mbox;
+static lv_style_t modal_style;
 
-static void event_handler(lv_obj_t * obj, lv_event_t event);
+static const char *TAG = "WIFI_SCAN";
+
 static void wifi_scan_task(void *pvParameters);
+static void mbox_event_cb(lv_obj_t *obj, lv_event_t evt);
+static void event_handler(lv_obj_t * obj, lv_event_t event);
 
 void display_wifi_tab(lv_obj_t *tv){
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
@@ -85,15 +89,57 @@ void display_wifi_tab(lv_obj_t *tv){
     lv_obj_align(list1, wifi_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -10);
     lv_list_set_edge_flash(list1, true);
 
+    /* Set the background for the popup modal */
+    lv_style_init(&modal_style);
+    lv_style_set_bg_color(&modal_style, LV_STATE_DEFAULT, LV_COLOR_BLACK);
+
     xSemaphoreGive(xGuiSemaphore);
     xTaskCreatePinnedToCore(wifi_scan_task, "WiFiScanTask", configMINIMAL_STACK_SIZE * 4, (void *)list1, 1, &wifi_handle, 1);
 }
 
-static void event_handler(lv_obj_t * obj, lv_event_t event){
+static void opa_anim(void * bg, lv_anim_value_t v)
+{
+    lv_obj_set_style_local_bg_opa(bg, LV_OBJ_PART_MAIN, LV_STATE_DEFAULT, v);
+}
+
+static void mbox_event_cb(lv_obj_t *obj, lv_event_t evt){
+    if(evt == LV_EVENT_DELETE && obj == mbox) {
+        /* Delete the parent modal background */
+        lv_obj_del_async(lv_obj_get_parent(mbox));
+        mbox = NULL; /* happens before object is actually deleted! */
+    } else if(evt == LV_EVENT_VALUE_CHANGED) {
+        /* Button was clicked */
+        lv_msgbox_start_auto_close(mbox, 0);
+    }
+}
+
+static void event_handler(lv_obj_t * obj, lv_event_t event)
+{
     if(event == LV_EVENT_CLICKED) {
-        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         printf("Clicked: %s\n", lv_list_get_btn_text(obj));
-        xSemaphoreGive(xGuiSemaphore);
+        lv_obj_t *obj = lv_obj_create(lv_scr_act(), NULL);
+        lv_obj_reset_style_list(obj, LV_OBJ_PART_MAIN);
+        lv_obj_add_style(obj, LV_OBJ_PART_MAIN, &modal_style);
+        lv_obj_set_pos(obj, 0, 0);
+        lv_obj_set_size(obj, LV_HOR_RES, LV_VER_RES);
+
+        static const char * btns1[] = {"Ok", ""};
+
+        /* Create the message box as a child of the modal background */
+        mbox = lv_msgbox_create(obj, NULL);
+        lv_msgbox_add_btns(mbox, btns1);
+        lv_msgbox_set_text(mbox, "Visit https://edukit.workshop.aws\nto start building IoT apps");
+        lv_obj_align(mbox, NULL, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_event_cb(mbox, mbox_event_cb);
+
+        /* Fade the message box in with an animation */
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, obj);
+        lv_anim_set_time(&a, 500);
+        lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_50);
+        lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)opa_anim);
+        lv_anim_start(&a);
     }
 }
 

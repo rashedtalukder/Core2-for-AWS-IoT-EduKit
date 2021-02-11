@@ -25,7 +25,7 @@
 
 #pragma once
 
-#define TOUCH_TAB_NAME "TOUCH"
+#define TOUCH_TAB_NAME "FT6336U-TOUCH"
 
 TaskHandle_t touch_handle;
 

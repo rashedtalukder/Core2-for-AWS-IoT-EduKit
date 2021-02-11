@@ -82,7 +82,7 @@ void display_power_tab(lv_obj_t *tv, lv_obj_t *core2forAWS_screen_obj){
     lv_label_set_static_text(led_lbl, "Bottom Green LED");
     lv_obj_align(led_lbl, power_bg, LV_ALIGN_IN_LEFT_MID, 20, 18);
     lv_obj_t *led_sw = lv_switch_create(power_bg, NULL);
-    lv_obj_set_size(led_sw, 60, 16);
+    lv_obj_set_size(led_sw, 40, 16);
     lv_obj_set_event_cb(led_sw, led_event_handler);
     lv_obj_align(led_sw, power_bg, LV_ALIGN_IN_RIGHT_MID, -20, 18);
 
@@ -90,15 +90,15 @@ void display_power_tab(lv_obj_t *tv, lv_obj_t *core2forAWS_screen_obj){
     lv_label_set_static_text(vibr_lbl, "Vibration Motor");
     lv_obj_align(vibr_lbl, power_bg, LV_ALIGN_IN_LEFT_MID, 20, 46);
     lv_obj_t *vibr_sw = lv_switch_create(power_bg, NULL);
-    lv_obj_set_size(vibr_sw, 60, 16);
+    lv_obj_set_size(vibr_sw, 40, 16);
     lv_obj_set_event_cb(vibr_sw, vibration_event_handler);
     lv_obj_align(vibr_sw, power_bg, LV_ALIGN_IN_RIGHT_MID, -20, 46);
 
     lv_obj_t *brightness_lbl = lv_label_create(power_bg, NULL);
-    lv_label_set_static_text(brightness_lbl, "Brightness");
+    lv_label_set_static_text(brightness_lbl, "Screen Brightness");
     lv_obj_align(brightness_lbl, power_bg, LV_ALIGN_IN_LEFT_MID, 20, 74);
     lv_obj_t * brightness_slider = lv_slider_create(power_bg, NULL);
-    lv_obj_set_width(brightness_slider, 100);
+    lv_obj_set_width(brightness_slider, 90);
     lv_obj_align(brightness_slider, power_bg, LV_ALIGN_IN_RIGHT_MID, -20, 78);
     lv_obj_set_event_cb(brightness_slider, brightness_event_handler);
     lv_slider_set_value(brightness_slider, 80, LV_ANIM_OFF);
@@ -112,7 +112,7 @@ static void brightness_event_handler(lv_obj_t *slider, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
         uint16_t value = lv_slider_get_value(slider);
 
-        Core2ForAWS_LCD_SetBrightness(value);
+        Core2ForAWS_Display_SetBrightness(value);
         ESP_LOGI(TAG, "Screen brightness: %d", value);
     }
 }

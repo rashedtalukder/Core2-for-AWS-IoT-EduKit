@@ -25,7 +25,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -42,10 +41,10 @@ static const char *TAG = HOME_TAB_NAME;
 
 void display_home_tab(lv_obj_t *tv){
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);   // Takes (blocks) the xGuiSemaphore mutex from being read/written by another task.
+    
+    lv_obj_t *home_tab = lv_tabview_add_tab(tv, HOME_TAB_NAME);   // Create a tab
 
-    lv_obj_t *home_tab = lv_tabview_add_tab(tv, HOME_TAB_NAME);  // Create a tab
-
-    lv_obj_t *url_label = lv_label_create(home_tab, NULL);
+    lv_obj_t * url_label = lv_label_create(home_tab, NULL);
     lv_label_set_static_text(url_label, "Get started with AWS IoT EduKit:\nhttps://edukit.workshop.aws");
     lv_label_set_align(url_label, LV_LABEL_ALIGN_CENTER);
     lv_obj_align(url_label, home_tab, LV_ALIGN_CENTER, 0 , -10);
@@ -66,4 +65,6 @@ void display_home_tab(lv_obj_t *tv){
     lv_label_set_align(arrow_label, LV_LABEL_ALIGN_CENTER);
     lv_obj_align(arrow_label, home_tab, LV_ALIGN_IN_BOTTOM_MID, 0 , -40);
     xSemaphoreGive(xGuiSemaphore);
+    
+    ESP_LOGI(TAG, "\n\nWelcome to your M5Stack Core2 for AWS IoT EduKit reference hardware! Visit https://edukit.workshop.aws to view the tutorials and start learning how to build IoT solutions using AWS services.\n\n");
 }

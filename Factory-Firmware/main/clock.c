@@ -34,16 +34,15 @@
 #include "freertos/semphr.h"
 
 #include "esp_log.h"
-
 #include "core2forAWS.h"
 #include "lvgl/lvgl.h"
 #include "bm8563.h"
 
 #include "clock.h"
 
-static const char *TAG = "CLOCK";
+static const char *TAG = CLOCK_TAB_NAME;
 
-rtc_date_t datetime;
+lv_obj_t *clock_tab;
 
 static lv_obj_t *hour_roller;
 static lv_obj_t *minute_roller;
@@ -51,13 +50,9 @@ static lv_obj_t *minute_roller;
 static void hour_event_handler(lv_obj_t * obj, lv_event_t event)
 {
     if(event == LV_EVENT_VALUE_CHANGED) {
-        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         int hour = lv_roller_get_selected(obj);
-        xSemaphoreGive(xGuiSemaphore);
-
         datetime.hour = hour;
         BM8563_SetTime(&datetime);
-
         update_roller_time();
     }
 }
@@ -65,23 +60,17 @@ static void hour_event_handler(lv_obj_t * obj, lv_event_t event)
 static void minute_event_handler(lv_obj_t * obj, lv_event_t event)
 {
     if(event == LV_EVENT_VALUE_CHANGED) {
-        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         int minute = lv_roller_get_selected(obj);
-        xSemaphoreGive(xGuiSemaphore);
-
         datetime.minute = minute;
         BM8563_SetTime(&datetime);
-
         update_roller_time();
     }
 }
 
 void update_roller_time(){
     BM8563_GetTime(&datetime);
-    xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
     lv_roller_set_selected(hour_roller, datetime.hour, LV_ANIM_OFF);
     lv_roller_set_selected(minute_roller, datetime.minute, LV_ANIM_OFF);
-    xSemaphoreGive(xGuiSemaphore);
 
     ESP_LOGI(TAG, "Current Date: %d-%02d-%02d  Time: %02d:%02d:%02d", 
         datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, datetime.second);
@@ -145,9 +134,7 @@ static char * generate_roller_str(int number)
 }
 
 void display_clock_tab(lv_obj_t *tv, lv_obj_t * core2forAWS_screen_obj){
-    xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
-
-    lv_obj_t *clock_tab = lv_tabview_add_tab(tv, CLOCK_TAB_NAME);  // Create a tab
+    clock_tab = lv_tabview_add_tab(tv, CLOCK_TAB_NAME);  // Create a tab
 
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
@@ -197,19 +184,15 @@ void display_clock_tab(lv_obj_t *tv, lv_obj_t * core2forAWS_screen_obj){
     lv_obj_set_event_cb(hour_roller, hour_event_handler);
     lv_obj_set_event_cb(minute_roller, minute_event_handler);
 
-    xSemaphoreGive(xGuiSemaphore);
-
     xTaskCreatePinnedToCore(clock_task, "clockTask", configMINIMAL_STACK_SIZE * 2, (void *) core2forAWS_screen_obj, 0, &clock_handle, 1);
 }
 
 void clock_task(void *pvParameters){
-    xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
     lv_obj_t *time_lbl = lv_label_create((lv_obj_t *)pvParameters, NULL);
     lv_label_set_text(time_lbl, "00:00:00 AM");
     lv_label_set_align(time_lbl, LV_LABEL_ALIGN_CENTER);
     lv_obj_align(time_lbl, NULL, LV_ALIGN_IN_TOP_MID, 4, 10);
-    xSemaphoreGive(xGuiSemaphore);
-    
+
     for(;;){
         BM8563_GetTime(&datetime);
         char clock_buf[15];
@@ -219,9 +202,7 @@ void clock_task(void *pvParameters){
         } else{
             snprintf(clock_buf, 15, "%02d:%02d:%02d AM", datetime.hour, datetime.minute, datetime.second);
         }
-        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         lv_label_set_text(time_lbl, clock_buf);
-        xSemaphoreGive(xGuiSemaphore);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
     vTaskDelete(NULL); // Should never get to here...

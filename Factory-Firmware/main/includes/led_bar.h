@@ -25,7 +25,7 @@
 
 #pragma once
 
-#define LED_BAR_TAB_NAME "LED_BAR"
+#define LED_BAR_TAB_NAME "SK6812-LED_BAR"
 
 void display_LED_bar_tab(lv_obj_t *tv);
-void LED_bar_task(void *pvParameters);
+void sk6812_task(void *pvParameters);

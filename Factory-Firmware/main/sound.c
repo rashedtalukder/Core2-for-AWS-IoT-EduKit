@@ -32,7 +32,6 @@
 #include "core2forAWS.h"
 #include "speaker.h"
 #include "sound.h"
-#include "music.c"
 
 void sound_task(void *arg) {
     Speaker_Init();

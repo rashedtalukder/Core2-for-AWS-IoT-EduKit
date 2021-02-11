@@ -59,8 +59,6 @@ Note: Sebastian Madgwick's algorithym implementation library is GPL licensed.
 
 static const char *TAG = MPU_TAB_NAME;
 
-static void mpu_task(void * pvParameters);
-
 void display_mpu_tab(lv_obj_t *tv){
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);   // Takes (blocks) the xGuiSemaphore mutex from being read/written by another task.
     
@@ -95,11 +93,11 @@ void display_mpu_tab(lv_obj_t *tv){
     lv_obj_t *lgnd_bg = lv_obj_create(mpu_bg, NULL);
     lv_obj_set_size(lgnd_bg, 200, 24);
     lv_obj_align(lgnd_bg, mpu_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -10);
-    lv_obj_t *lbl_legend = lv_label_create(lgnd_bg, NULL);
-    lv_label_set_recolor(lbl_legend, true); // Enable recoloring of the text within the label with color HEX
-    lv_label_set_static_text(lbl_legend, "#ff0000 Rot_X#    #008000 Rot_Y#    #0000ff Rot_Z#");
-    lv_label_set_align(lbl_legend, LV_LABEL_ALIGN_CENTER);
-    lv_obj_align(lbl_legend, lgnd_bg, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t *legend_lbl = lv_label_create(lgnd_bg, NULL);
+    lv_label_set_recolor(legend_lbl, true); // Enable recoloring of the text within the label with color HEX
+    lv_label_set_static_text(legend_lbl, "#ff0000 Rot_X#    #008000 Rot_Y#    #0000ff Rot_Z#");
+    lv_label_set_align(legend_lbl, LV_LABEL_ALIGN_CENTER);
+    lv_obj_align(legend_lbl, lgnd_bg, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_local_bg_color( lgnd_bg, LV_OBJ_PART_MAIN, LV_STATE_DEFAULT, LV_COLOR_WHITE );
     
     /* Create a gauge */
@@ -127,10 +125,10 @@ void display_mpu_tab(lv_obj_t *tv){
     Create a task to read the MPU values running on the 2nd Core. 
     Pass in pointer to the gauge object to display value on the gauge.
     */
-    xTaskCreatePinnedToCore(mpu_task, "MPUTask", 2048, (void *) gauge, 1, &MPU_handle, 1);
+    xTaskCreatePinnedToCore(MPU_task, "MPUTask", 2048, (void *) gauge, 1, &MPU_handle, 1);
 }
 
-static void mpu_task(void *pvParameters){
+void MPU_task(void *pvParameters){
     float calib_gx = 0.00;
     float calib_gy = 0.00;
     float calib_gz = 0.00;
@@ -150,6 +148,7 @@ static void mpu_task(void *pvParameters){
         MPU6886_GetAccelData(&ax, &ay, &az);
         MPU6886_GetGyroData(&gx, &gy, &gz);
         
+
         // float pitch, roll, yaw;
         // MahonyAHRSupdateIMU(gx * DEGREES_TO_RADIANS, gy * DEGREES_TO_RADIANS, gz * DEGREES_TO_RADIANS, ax, ay, az, &pitch, &roll, &yaw);
         // ESP_LOGI(TAG, "Pitch: %.6f Roll: %.6f Yaw: %.6f | Raw Accel: X-%.6f Y-%.6f Z-%.6f | Gyro: X-%.6f Y-%.6fZ- %.6f", pitch, yaw, roll, ax, ay, az, gx, gy, gz);
@@ -157,12 +156,13 @@ static void mpu_task(void *pvParameters){
         ESP_LOGI(TAG, "Raw Accel: X-%.6f Y-%.6f Z-%.6f | Gyro: X-%.6f Y-%.6fZ- %.6f", ax, ay, az, gx, gy, gz);
 
         lv_obj_t * gauges = (lv_obj_t *) pvParameters;
-        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         
+        xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         lv_gauge_set_value(gauges, 0, (int) (gx-calib_gx));
         lv_gauge_set_value(gauges, 1, (int) (gy-calib_gy));
         lv_gauge_set_value(gauges, 2, (int) (gz-calib_gz));
         xSemaphoreGive(xGuiSemaphore); 
+        
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     vTaskDelete(NULL); // Should never get to here...

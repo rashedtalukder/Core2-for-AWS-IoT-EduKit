@@ -25,7 +25,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -49,7 +48,7 @@ void display_crypto_tab(lv_obj_t *tv){
 
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
-    lv_obj_t *crypto_bg = lv_obj_create(crypto_tab, NULL);
+    lv_obj_t * crypto_bg = lv_obj_create(crypto_tab, NULL);
     lv_obj_align(crypto_bg, NULL, LV_ALIGN_IN_TOP_LEFT, 16, 36);
     lv_obj_set_size(crypto_bg, 290, 190);
     lv_obj_set_click(crypto_bg, false);
@@ -69,7 +68,7 @@ void display_crypto_tab(lv_obj_t *tv){
     /* Create the sensor information label object */
     lv_obj_t *lbl_body = lv_label_create(crypto_bg, NULL);
     lv_label_set_long_mode(lbl_body, LV_LABEL_LONG_BREAK);
-    lv_label_set_static_text(lbl_body, "The ATECC608 comes with pre-provisioned static certificates and Elliptic Curve Digital Signature Algorithm (ECDSA) sign/verify capability.");
+    lv_label_set_static_text(lbl_body, "The ATECC608 comes with pre-provisioned static certificates, along with Elliptic Curve Digital Signature Algorithm (ECDSA) sign/verify capability.");
     lv_obj_set_width(lbl_body, 252);
     lv_obj_align(lbl_body, crypto_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40);
     xSemaphoreGive(xGuiSemaphore);
@@ -80,7 +79,6 @@ void display_crypto_tab(lv_obj_t *tv){
     if (ret == ATCA_SUCCESS){
         char sn_label_text[device_serial_len + 9];
         snprintf(sn_label_text, device_serial_len + 9, "Serial # %s", device_serial);
-        ESP_LOGI(TAG, "Device %s", sn_label_text);
         xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         lv_obj_t *serial_label = lv_label_create(crypto_bg, NULL);
         lv_label_set_text(serial_label, sn_label_text);

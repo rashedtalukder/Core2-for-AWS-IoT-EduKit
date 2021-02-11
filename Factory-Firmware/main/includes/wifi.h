@@ -25,7 +25,7 @@
 
 #pragma once
 
-#define WIFI_TAB_NAME "WI-FI"
+#define WIFI_TAB_NAME "ESP32-D0WD-WI-FI"
 
 TaskHandle_t wifi_handle;
 
