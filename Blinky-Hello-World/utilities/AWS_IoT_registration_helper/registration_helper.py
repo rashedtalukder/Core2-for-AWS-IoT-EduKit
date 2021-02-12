@@ -23,6 +23,13 @@
 import sys
 import argparse
 import subprocess
+import os
+
+os.environ["CRYPTOAUTHLIB_NOUSB"] = "1"
+
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r'
+'requirements.txt'])
+
 from pyasn1_modules import pem
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -31,13 +38,12 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from datetime import datetime, timedelta
-import os
+
 import re
-import sys
 import binascii
 import json
 
-# Verify ESP-IDF is installed and environmental variables are added to PATH
+# Verify esptool is installed and environmental variables are added to PATH
 try:
     import esptool
 except ImportError: 
@@ -79,11 +85,12 @@ def check_environment():
     conda_env = os.environ.get('CONDA_DEFAULT_ENV')
     if conda_env == None or conda_env == "base":
         print("The 'edukit' Conda environment is not created or activated:\n  To install miniconda, visit https://docs.conda.io/en/latest/miniconda.html.\n  To create the environment, use the command 'conda create -n edukit python=3.7'\n  To activate the environment, use the command 'conda activate edukit'\n")
-    print("Conda 'edukit' environment active...")
+    else
+        print("Conda 'edukit' environment active...")
     
-    if sys.version_info[0] != 3 or sys.version_info[1] != 7:
+    if sys.version_info[0] != 3 or sys.version_info[1] < 6:
         print(f"Python version {sys.version}")
-        print("Incorrect version of Python detected. Must use Python version 3.7.x. You might want to try the command 'conda install python=3.7'.")
+        print("Incorrect version of Python detected. Must use Python version 3.6.x. You might want to try the command 'conda install python=3.7'.")
         exit(0)
     print("Python 3.7.x detected...")
 
