@@ -27,5 +27,16 @@
 
 #define LED_BAR_TAB_NAME "SK6812-LED_BAR"
 
-void display_LED_bar_tab(lv_obj_t *tv);
-void sk6812_task(void *pvParameters);
+TaskHandle_t led_bar_animation_handle, led_bar_solid_handle;
+
+typedef struct Colors {
+    uint8_t red;
+    uint8_t blue;
+    uint8_t green;
+} colors;
+
+void display_LED_bar_tab(lv_obj_t* tv);
+void update_color();
+void sk6812_solid_task(void* pvParameters);
+void sk6812_animation_task(void* pvParameters);
+

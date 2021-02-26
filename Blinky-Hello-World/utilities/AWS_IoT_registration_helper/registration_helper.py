@@ -85,7 +85,7 @@ def check_environment():
     conda_env = os.environ.get('CONDA_DEFAULT_ENV')
     if conda_env == None or conda_env == "base":
         print("The 'edukit' Conda environment is not created or activated:\n  To install miniconda, visit https://docs.conda.io/en/latest/miniconda.html.\n  To create the environment, use the command 'conda create -n edukit python=3.7'\n  To activate the environment, use the command 'conda activate edukit'\n")
-    else
+    else:
         print("Conda 'edukit' environment active...")
     
     if sys.version_info[0] != 3 or sys.version_info[1] < 6:

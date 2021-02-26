@@ -291,7 +291,7 @@ void microphone_task(void *arg) {
     for (;;) {
         maxSound = 0x00;
         fft_config_t *real_fft_plan = fft_init(512, FFT_REAL, FFT_FORWARD, NULL, NULL);
-        i2s_read(I2S_NUM_0, (char *)i2s_readraw_buff, 1024, &bytesread, (100 / portTICK_RATE_MS));
+        i2s_read(I2S_NUM_0, (char *)i2s_readraw_buff, 1024, &bytesread, pdMS_TO_TICKS(100));
         buffptr = (int16_t *)i2s_readraw_buff;
         for (uint16_t count_n = 0; count_n < real_fft_plan->size; count_n++) {
             real_fft_plan->input[count_n] = (float)map(buffptr[count_n], INT16_MIN, INT16_MAX, -1000, 1000);
@@ -504,7 +504,7 @@ display_textarea_add("\n\nDevice client Id:\n>> %s <<\n", CLIENT_ID, (size_t *) 
         ESP_LOGI(TAG, "*****************************************************************************************");
         ESP_LOGI(TAG, "Stack remaining for task '%s' is %d bytes", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
 
-        vTaskDelay(1000 / portTICK_RATE_MS);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
     if(SUCCESS != rc) {

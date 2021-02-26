@@ -35,16 +35,16 @@
 
 #include "core2forAWS.h"
 #include "lvgl/lvgl.h"
-#include "display.h"
+#include "ui.h"
 
 extern SemaphoreHandle_t xGuiSemaphore;
 
-static lv_obj_t * out_txtarea;
-static lv_obj_t * wifi_label;
+static lv_obj_t *out_txtarea;
+static lv_obj_t *wifi_label;
 
-static char * TAG = "Display";
+static char *TAG = "UI";
 
-void display_textarea_add(char * baseTxt, char * param, size_t * paramLen) {
+void ui_textarea_add(char *baseTxt, char *param, size_t *paramLen) {
     if( baseTxt != NULL ){
         xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
         if (param != NULL){
@@ -67,7 +67,7 @@ void display_textarea_add(char * baseTxt, char * param, size_t * paramLen) {
     }
 }
 
-void display_wifi_label_update(bool state){
+void ui_wifi_label_update(bool state){
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
     if (state == false) {
         lv_label_set_text(wifi_label, LV_SYMBOL_WIFI);
@@ -79,7 +79,7 @@ void display_wifi_label_update(bool state){
     xSemaphoreGive(xGuiSemaphore);
 }
 
-void display_init() {
+void ui_init() {
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
     wifi_label = lv_label_create(lv_scr_act(), NULL);
     lv_obj_align(wifi_label,NULL,LV_ALIGN_IN_TOP_RIGHT, 0, 6);

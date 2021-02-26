@@ -147,7 +147,7 @@ static void va_led_task(void *arg)
                     vol = 1;
                 }
                 va_led_send_vl(va_led_con[LED_PATTERN_SPEAKER_VOL].led_states, vol - 1);
-                vTaskDelay(178 / portTICK_RATE_MS); //Need to figue out this delay
+                vTaskDelay(pdMS_TO_TICKS(178)); //Need to figue out this delay
             }
             va_led_priority[2].va_led_priority_status = false;
         }

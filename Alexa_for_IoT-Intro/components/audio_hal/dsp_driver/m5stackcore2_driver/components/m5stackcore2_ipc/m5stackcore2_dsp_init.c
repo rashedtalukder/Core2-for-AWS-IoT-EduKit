@@ -144,7 +144,7 @@ static void ww_detection_task(void *arg)
             chunks++;
         } else {
             memset(buffer, 0, (audio_chunksize * sizeof(int16_t)));
-            vTaskDelay(100/portTICK_RATE_MS);
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
     }
 }
@@ -172,7 +172,7 @@ static void resample_rb_data_task(void *arg)
         sent_len = rb_read(dd.raw_mic_data, (uint8_t *)dd.data_buf, dd.data_sample_size * 2, portMAX_DELAY);
         if (dd.mic_mute_enabled) {
             // Drop the data.
-            vTaskDelay(200/portTICK_RATE_MS);
+            vTaskDelay(pdMS_TO_TICKS(200));
         } else {
             sent_len = audio_resample((short *)dd.data_buf, (short *)dd.data_buf, dd.sample_rate, DETECT_SAMP_RATE,
                                       dd.data_sample_size, dd.data_sample_size, dd.channels, &dd.resample);
@@ -320,11 +320,11 @@ void m5stackcore2_init()
     dd.item_chunk_size = esp_wwe_get_sample_chunksize() * sizeof(int16_t);
 
     audio_stream_start(&dd.read_i2s_stream->base);
-    vTaskDelay(10/portTICK_RATE_MS);
+    vTaskDelay(pdMS_TO_TICKS(10));
     if (dd.set_i2s_clk) {
         audio_stream_stop(&dd.read_i2s_stream->base);
         i2s_set_clk(dd.i2s_number, dd.sample_rate, SAMP_BITS, dd.channels);
-        vTaskDelay(10/portTICK_RATE_MS);
+        vTaskDelay(pdMS_TO_TICKS(10));
         audio_stream_start(&dd.read_i2s_stream->base);
     }
     dd.detect_wakeword = true;

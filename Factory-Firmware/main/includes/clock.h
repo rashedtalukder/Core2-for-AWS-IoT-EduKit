@@ -27,10 +27,10 @@
 
 #define CLOCK_TAB_NAME "BM85633-CLOCK"
 
-extern lv_obj_t *clock_tab;
+extern lv_obj_t* clock_tab;
 TaskHandle_t clock_handle;
 rtc_date_t datetime;
 
 void display_clock_tab();
 void update_roller_time();
-void clock_task(void *pvParameters);
+void clock_task(void* pvParameters);

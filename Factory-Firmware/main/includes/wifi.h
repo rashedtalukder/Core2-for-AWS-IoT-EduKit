@@ -29,4 +29,4 @@
 
 TaskHandle_t wifi_handle;
 
-void display_wifi_tab(lv_obj_t *tv);
+void display_wifi_tab(lv_obj_t* tv);

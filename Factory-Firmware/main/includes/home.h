@@ -27,4 +27,4 @@
 
 #define HOME_TAB_NAME "HOME"
 
-void display_home_tab(lv_obj_t *tv);
+void display_home_tab(lv_obj_t* tv);

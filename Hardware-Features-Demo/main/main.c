@@ -201,7 +201,7 @@ static void speakerTask(void *arg) {
     Speaker_WriteBuff((uint8_t *)music, 120264, portMAX_DELAY);
     Core2ForAWS_Speaker_Enable(0);
     Speaker_Deinit();
-    xTaskCreatePinnedToCore(microphoneTask, "microphoneTask", 4096*2, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(microphoneTask, "microphoneTask", 4096 * 2, NULL, 1, NULL, 0);
     vTaskDelete(NULL);
 }
 

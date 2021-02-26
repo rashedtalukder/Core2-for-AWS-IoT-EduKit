@@ -33,11 +33,11 @@
 #include "speaker.h"
 #include "sound.h"
 
-void sound_task(void *arg) {
+void sound_task(void* arg) {
     Speaker_Init();
     Core2ForAWS_Speaker_Enable(1);
     extern const unsigned char music[120264];
-    Speaker_WriteBuff((uint8_t *)music, 120264, portMAX_DELAY);
+    Speaker_WriteBuff((uint8_t*)music, 120264, portMAX_DELAY);
     Core2ForAWS_Speaker_Enable(0);
     Speaker_Deinit();
     vTaskDelete(NULL); // Deletes the current task from FreeRTOS task list and the FreeRTOS idle task will remove from memory.

@@ -209,7 +209,7 @@ static int es8311_write_reg(uint8_t reg_addr, uint8_t data)
     res |= i2c_master_write_byte(cmd, reg_addr, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_write_byte(cmd, data, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_stop(cmd);
-    res |= i2c_master_cmd_begin(0, cmd, 1000 / portTICK_RATE_MS);
+    res |= i2c_master_cmd_begin(0, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
     ES_ASSERT(res, "ES8311 Write Reg error reg_addr: 0x%x, data: %d", -1, reg_addr, data);
     ESP_LOGD(TAG, "ES8311 Write reg_addr: 0x%x, data: %d", reg_addr, data);
@@ -226,7 +226,7 @@ static int es8311_read_reg(uint8_t reg_addr)
     res |= i2c_master_write_byte(cmd, ES8311_ADDR, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_write_byte(cmd, reg_addr, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_stop(cmd);
-    res |= i2c_master_cmd_begin(0, cmd, 1000 / portTICK_RATE_MS);
+    res |= i2c_master_cmd_begin(0, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
 
     cmd = i2c_cmd_link_create();
@@ -234,7 +234,7 @@ static int es8311_read_reg(uint8_t reg_addr)
     res |= i2c_master_write_byte(cmd, ES8311_ADDR | 0x01, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_read_byte(cmd, &data, 0x01 /*NACK_VAL*/);
     res |= i2c_master_stop(cmd);
-    res |= i2c_master_cmd_begin(0, cmd, 1000 / portTICK_RATE_MS);
+    res |= i2c_master_cmd_begin(0, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
 
     ES_ASSERT(res, "Es8311 Read Reg error", -1);

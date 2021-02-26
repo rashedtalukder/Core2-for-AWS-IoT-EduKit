@@ -40,14 +40,14 @@
 
 #include "clock.h"
 
-static const char *TAG = CLOCK_TAB_NAME;
+static const char* TAG = CLOCK_TAB_NAME;
 
-lv_obj_t *clock_tab;
+lv_obj_t* clock_tab;
 
-static lv_obj_t *hour_roller;
-static lv_obj_t *minute_roller;
+static lv_obj_t* hour_roller;
+static lv_obj_t* minute_roller;
 
-static void hour_event_handler(lv_obj_t * obj, lv_event_t event)
+static void hour_event_handler(lv_obj_t* obj, lv_event_t event)
 {
     if(event == LV_EVENT_VALUE_CHANGED) {
         int hour = lv_roller_get_selected(obj);
@@ -57,7 +57,7 @@ static void hour_event_handler(lv_obj_t * obj, lv_event_t event)
     }
 }
 
-static void minute_event_handler(lv_obj_t * obj, lv_event_t event)
+static void minute_event_handler(lv_obj_t* obj, lv_event_t event)
 {
     if(event == LV_EVENT_VALUE_CHANGED) {
         int minute = lv_roller_get_selected(obj);
@@ -108,7 +108,7 @@ static uint16_t count_bsearch(int i)
     }
 }
 
-static char * generate_roller_str(int number)
+static char* generate_roller_str(int number)
 {
     uint16_t temp_number = number;
     const uint16_t last_number = number - 1;
@@ -122,7 +122,7 @@ static char * generate_roller_str(int number)
     }
     roller_str_len--;
     
-    char * roller_str = heap_caps_malloc(roller_str_len, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM);
+    char* roller_str = heap_caps_malloc(roller_str_len, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM);
     roller_str[0] = '\0';
     for(int i = 0; i < number; i++){
         size_t i_size = count_bsearch(i) + 2;
@@ -133,65 +133,73 @@ static char * generate_roller_str(int number)
     return roller_str;
 }
 
-void display_clock_tab(lv_obj_t *tv, lv_obj_t * core2forAWS_screen_obj){
+void display_clock_tab(lv_obj_t*tv, lv_obj_t* core2forAWS_screen_obj){
     clock_tab = lv_tabview_add_tab(tv, CLOCK_TAB_NAME);  // Create a tab
 
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
-    lv_obj_t *clock_bg = lv_obj_create(clock_tab, NULL);
+    lv_obj_t* clock_bg = lv_obj_create(clock_tab, NULL);
     lv_obj_align(clock_bg, NULL, LV_ALIGN_IN_TOP_LEFT, 16, 36);
     lv_obj_set_size(clock_bg, 290, 190);
     lv_obj_set_click(clock_bg, false);
     lv_style_init(&bg_style);
-    lv_style_set_bg_color(&bg_style, LV_STATE_DEFAULT, lv_color_make(250, 198, 251));
+    lv_style_set_bg_color(&bg_style, LV_STATE_DEFAULT, lv_color_make(254, 230, 0));
     lv_obj_add_style(clock_bg, LV_OBJ_PART_MAIN, &bg_style);
 
     /* Create the title within the main body object */
     static lv_style_t title_style;
     lv_style_init(&title_style);
     lv_style_set_text_font(&title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE);
-    lv_obj_t *tab_title_lbl = lv_label_create(clock_bg, NULL);
-    lv_obj_add_style(tab_title_lbl, LV_OBJ_PART_MAIN, &title_style);
-    lv_label_set_static_text(tab_title_lbl, "BM8563 Real-time Clock");
-    lv_obj_align(tab_title_lbl, clock_bg, LV_ALIGN_IN_TOP_MID, 0, 10);
+    lv_style_set_text_color(&title_style, LV_STATE_DEFAULT, LV_COLOR_BLACK);
+    lv_obj_t* tab_title_label = lv_label_create(clock_bg, NULL);
+    lv_obj_add_style(tab_title_label, LV_OBJ_PART_MAIN, &title_style);
+    lv_label_set_static_text(tab_title_label, "BM8563 Real-time Clock");
+    lv_obj_align(tab_title_label, clock_bg, LV_ALIGN_IN_TOP_MID, 0, 10);
 
     /* Create the sensor information label object */
-    lv_obj_t *body_lbl = lv_label_create(clock_bg, NULL);
-    lv_label_set_long_mode(body_lbl, LV_LABEL_LONG_BREAK);
-    lv_label_set_static_text(body_lbl, "The BM8563 is an accurate, low power consumption real-time clock (RTC).");
-    lv_obj_set_width(body_lbl, 252);
-    lv_obj_align(body_lbl, clock_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40);
+    lv_obj_t* body_label = lv_label_create(clock_bg, NULL);
+    lv_label_set_long_mode(body_label, LV_LABEL_LONG_BREAK);
+    lv_label_set_static_text(body_label, "The BM8563 is an accurate, low powered real-time clock. ▲");
+    lv_obj_set_width(body_label, 252);
+    lv_obj_align(body_label, clock_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40);
 
-    char *hours_str = generate_roller_str(24);
+    static lv_style_t body_style;
+    lv_style_init(&body_style);
+    lv_style_set_text_color(&body_style, LV_STATE_DEFAULT, LV_COLOR_BLACK);
+    lv_obj_add_style(body_label, LV_OBJ_PART_MAIN, &body_style);
+
+    char* hours_str = generate_roller_str(24);
     hour_roller = lv_roller_create(clock_bg, NULL);
     lv_roller_set_options(hour_roller, hours_str, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(hour_roller, 2);
-    lv_obj_align(hour_roller, clock_bg, LV_ALIGN_IN_BOTTOM_MID, -40, -10);
+    lv_roller_set_auto_fit(hour_roller, false);
+    lv_obj_set_width(hour_roller, 60);
+    lv_obj_align(hour_roller, clock_bg, LV_ALIGN_IN_BOTTOM_MID, -40, -20);
     heap_caps_free(hours_str);
 
-    lv_obj_t *separator_lbl = lv_label_create(clock_bg, NULL);
-    lv_label_set_static_text(separator_lbl, ":");
-    lv_obj_set_width(separator_lbl, 4);
-    lv_obj_align(separator_lbl, clock_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -40);
+    lv_obj_t* separator_label = lv_label_create(clock_bg, NULL);
+    lv_label_set_static_text(separator_label, ":");
+    lv_obj_set_width(separator_label, 4);
+    lv_obj_align(separator_label, clock_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -50);
 
     char *minutes_str = generate_roller_str(60);
-    minute_roller = lv_roller_create(clock_bg, NULL);
+    minute_roller = lv_roller_create(clock_bg, hour_roller);
     lv_roller_set_options(minute_roller, minutes_str, LV_ROLLER_MODE_NORMAL);
-    lv_roller_set_visible_row_count(minute_roller, 2);
-    lv_obj_align(minute_roller, clock_bg, LV_ALIGN_IN_BOTTOM_MID, 40, -10);
+    // lv_roller_set_visible_row_count(minute_roller, 2);
+    lv_obj_align(minute_roller, clock_bg, LV_ALIGN_IN_BOTTOM_MID, 40, -20);
     heap_caps_free(minutes_str);
 
     lv_obj_set_event_cb(hour_roller, hour_event_handler);
     lv_obj_set_event_cb(minute_roller, minute_event_handler);
 
-    xTaskCreatePinnedToCore(clock_task, "clockTask", configMINIMAL_STACK_SIZE * 2, (void *) core2forAWS_screen_obj, 0, &clock_handle, 1);
+    xTaskCreatePinnedToCore(clock_task, "clockTask", configMINIMAL_STACK_SIZE * 3, (void*) core2forAWS_screen_obj, 0, &clock_handle, 1);
 }
 
-void clock_task(void *pvParameters){
-    lv_obj_t *time_lbl = lv_label_create((lv_obj_t *)pvParameters, NULL);
-    lv_label_set_text(time_lbl, "00:00:00 AM");
-    lv_label_set_align(time_lbl, LV_LABEL_ALIGN_CENTER);
-    lv_obj_align(time_lbl, NULL, LV_ALIGN_IN_TOP_MID, 4, 10);
+void clock_task(void* pvParameters){
+    lv_obj_t* time_label = lv_label_create((lv_obj_t*)pvParameters, NULL);
+    lv_label_set_text(time_label, "00:00:00 AM");
+    lv_label_set_align(time_label, LV_LABEL_ALIGN_CENTER);
+    lv_obj_align(time_label, NULL, LV_ALIGN_IN_TOP_MID, 4, 10);
 
     for(;;){
         BM8563_GetTime(&datetime);
@@ -202,7 +210,7 @@ void clock_task(void *pvParameters){
         } else{
             snprintf(clock_buf, 15, "%02d:%02d:%02d AM", datetime.hour, datetime.minute, datetime.second);
         }
-        lv_label_set_text(time_lbl, clock_buf);
+        lv_label_set_text(time_label, clock_buf);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
     vTaskDelete(NULL); // Should never get to here...

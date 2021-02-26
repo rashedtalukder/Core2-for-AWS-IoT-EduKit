@@ -68,13 +68,14 @@
 #include "touch.h"
 #include "led_bar.h"
 #include "crypto.h"
+#include "cta.h"
 
-static const char *TAG = "Core2ForAWS";
+static const char* TAG = "Core2ForAWS";
 
 static void ui_start(void);
-static void tab_event_cb(lv_obj_t * slider, lv_event_t event);
+static void tab_event_cb(lv_obj_t* slider, lv_event_t event);
 
-static lv_obj_t *tab_view;
+static lv_obj_t* tab_view;
 
 void app_main(void)
 {
@@ -109,8 +110,8 @@ void app_main(void)
 static void ui_start(void){
     /* Displays the Powered by AWS logo */
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);   // Takes (blocks) the xGuiSemaphore mutex from being read/written by another task.
-    lv_obj_t * opener_scr = lv_scr_act();   // Create a new LVGL "screen". Screens can be though of as a window.
-    lv_obj_t * aws_img_obj = lv_img_create(opener_scr, NULL);   // Creates an LVGL image object and assigns it as a child of the opener_scr parent screen.
+    lv_obj_t* opener_scr = lv_scr_act();   // Create a new LVGL "screen". Screens can be though of as a window.
+    lv_obj_t* aws_img_obj = lv_img_create(opener_scr, NULL);   // Creates an LVGL image object and assigns it as a child of the opener_scr parent screen.
     lv_img_set_src(aws_img_obj, &powered_by_aws_logo);  // Sets the image object with the image data from the powered_by_aws_logo file which contains hex pixel matrix of the image.
     lv_obj_align(aws_img_obj, NULL, LV_ALIGN_CENTER, 0, 0); // Aligns the image object to the center of the parent screen.
     lv_obj_set_style_local_bg_color(opener_scr, LV_OBJ_PART_MAIN, 0, LV_COLOR_WHITE);   // Sets the background color of the screen to white.
@@ -127,7 +128,7 @@ static void ui_start(void){
     
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);   // Takes (blocks) the xGuiSemaphore mutex from being read/written by another task.
     lv_obj_clean(opener_scr);   // Clear the aws_img_obj and remove from memory space. Currently no objects exist on the screen.
-    lv_obj_t * core2forAWS_obj = lv_obj_create(NULL, NULL); // Create a object to draw all with no parent 
+    lv_obj_t* core2forAWS_obj = lv_obj_create(NULL, NULL); // Create a object to draw all with no parent 
     lv_scr_load_anim(core2forAWS_obj, LV_SCR_LOAD_ANIM_MOVE_LEFT, 400, 0, false);   // Animates the loading of core2forAWS_obj as a slide into view from the left
     tab_view = lv_tabview_create(core2forAWS_obj, NULL); // Creates the tab view to display different tabs with different hardware features
     lv_obj_set_event_cb(tab_view, tab_event_cb); // Add a callback for whenever there is an event triggered on the tab_view object (e.g. a left-to-right swipe)
@@ -148,12 +149,13 @@ static void ui_start(void){
     display_touch_tab(tab_view);
     display_crypto_tab(tab_view);
     display_wifi_tab(tab_view);
+    display_cta_tab(tab_view);
 }
 
-static void tab_event_cb(lv_obj_t * slider, lv_event_t event){
+static void tab_event_cb(lv_obj_t* slider, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
-        lv_tabview_ext_t *ext = (lv_tabview_ext_t *) lv_obj_get_ext_attr(tab_view);
-        const char *tab_name = ext->tab_name_ptr[lv_tabview_get_tab_act(tab_view)];
+        lv_tabview_ext_t* ext = (lv_tabview_ext_t*) lv_obj_get_ext_attr(tab_view);
+        const char* tab_name = ext->tab_name_ptr[lv_tabview_get_tab_act(tab_view)];
         ESP_LOGI(TAG, "Current Active Tab: %s\n", tab_name);
 
         vTaskSuspend(MPU_handle);
@@ -161,6 +163,17 @@ static void tab_event_cb(lv_obj_t * slider, lv_event_t event){
         vTaskSuspend(FFT_handle);
         vTaskSuspend(wifi_handle);
         vTaskSuspend(touch_handle);
+        // vTaskSuspend(led_bar_solid_handle);
+        if( led_bar_solid_handle != NULL )
+        {
+            vTaskSuspend(led_bar_solid_handle);
+            /* Delete using the copy of the handle. */
+            vTaskDelete(led_bar_solid_handle);
+            /* The task is going to be deleted.
+            Set the handle to NULL. */
+            led_bar_solid_handle = NULL;
+        }
+        vTaskResume(led_bar_animation_handle);
         
         if(strcmp(tab_name, CLOCK_TAB_NAME) == 0)
             update_roller_time();
@@ -169,9 +182,14 @@ static void tab_event_cb(lv_obj_t * slider, lv_event_t event){
         else if(strcmp(tab_name, MICROPHONE_TAB_NAME) == 0){
             vTaskResume(mic_handle);
             vTaskResume(FFT_handle);
+        } else if (strcmp(tab_name, LED_BAR_TAB_NAME) == 0){
+            vTaskSuspend(led_bar_animation_handle);
+            xTaskCreatePinnedToCore(sk6812_solid_task, "sk6812SolidTask", configMINIMAL_STACK_SIZE * 3, NULL, 0, &led_bar_solid_handle, 1);
         }
-        else if(strcmp(tab_name, TOUCH_TAB_NAME) == 0)
+        else if(strcmp(tab_name, TOUCH_TAB_NAME) == 0){
+            reset_touch_bg();
             vTaskResume(touch_handle);
+        }
         else if(strcmp(tab_name, WIFI_TAB_NAME) == 0)
             vTaskResume(wifi_handle);
     }

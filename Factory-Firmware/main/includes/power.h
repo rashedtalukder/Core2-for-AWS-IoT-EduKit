@@ -27,7 +27,7 @@
 
 #define POWER_TAB_NAME "AXP192-POWER"
 
-extern lv_obj_t *power_tab;
+extern lv_obj_t* power_tab;
 
 void display_power_tab();
-void battery_task(void *pvParameters);
+void battery_task(void* pvParameters);

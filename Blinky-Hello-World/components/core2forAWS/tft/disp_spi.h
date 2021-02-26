@@ -16,7 +16,6 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <driver/spi_master.h>
-#include <freertos/semphr.h>
 
 /*********************
  *      DEFINES

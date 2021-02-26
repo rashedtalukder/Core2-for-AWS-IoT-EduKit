@@ -6,6 +6,7 @@
 #endif
 
 #if CONFIG_SOFTWARE_ILI9342C_SUPPORT
+#include "freertos/semphr.h"
 #include "lvgl/lvgl.h"
 #include "disp_driver.h"
 #include "disp_spi.h"

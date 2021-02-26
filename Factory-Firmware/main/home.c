@@ -37,19 +37,32 @@
 
 #include "home.h"
 
-static const char *TAG = HOME_TAB_NAME;
+static const char* TAG = HOME_TAB_NAME;
 
-void display_home_tab(lv_obj_t *tv){
+void display_home_tab(lv_obj_t* tv){
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);   // Takes (blocks) the xGuiSemaphore mutex from being read/written by another task.
     
-    lv_obj_t *home_tab = lv_tabview_add_tab(tv, HOME_TAB_NAME);   // Create a tab
+    lv_obj_t* home_tab = lv_tabview_add_tab(tv, HOME_TAB_NAME);   // Create a tab
 
-    lv_obj_t * url_label = lv_label_create(home_tab, NULL);
-    lv_label_set_static_text(url_label, "Get started with AWS IoT EduKit:\nhttps://edukit.workshop.aws");
-    lv_label_set_align(url_label, LV_LABEL_ALIGN_CENTER);
-    lv_obj_align(url_label, home_tab, LV_ALIGN_CENTER, 0 , -10);
+    /* Create the title within the tab */
+    static lv_style_t title_style;
+    lv_style_init(&title_style);
+    lv_style_set_text_font(&title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE);
+    lv_style_set_text_color(&title_style, LV_STATE_DEFAULT, LV_COLOR_BLACK);
     
-    lv_obj_t *arrow_label = lv_label_create(home_tab, NULL);
+    lv_obj_t* tab_title_label = lv_label_create(home_tab, NULL);
+    lv_obj_add_style(tab_title_label, LV_OBJ_PART_MAIN, &title_style);
+    lv_label_set_static_text(tab_title_label, "M5Stack\nCore2 for AWS IoT EduKit");
+    lv_label_set_align(tab_title_label, LV_LABEL_ALIGN_CENTER);
+    lv_obj_align(tab_title_label, home_tab, LV_ALIGN_IN_TOP_MID, 0, 50);
+
+    lv_obj_t* body_label = lv_label_create(home_tab, NULL);
+    lv_label_set_long_mode(body_label, LV_LABEL_LONG_BREAK);
+    lv_label_set_static_text(body_label, "Swipe through to learn about some of the hardware features.");
+    lv_obj_set_width(body_label, 280);
+    lv_obj_align(body_label, home_tab, LV_ALIGN_CENTER, 0 , 10);
+    
+    lv_obj_t* arrow_label = lv_label_create(home_tab, NULL);
     lv_label_set_recolor(arrow_label, true);
     size_t arrow_buf_len = snprintf (NULL, 0, 
         "#ff9900 %1$s       %1$s       %1$s#       #232f3e SWIPE #      #ff9900 %1$s       %1$s       %1$s#       #232f3e SWIPE #", 

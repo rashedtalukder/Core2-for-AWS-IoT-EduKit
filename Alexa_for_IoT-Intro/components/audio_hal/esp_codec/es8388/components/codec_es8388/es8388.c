@@ -85,7 +85,7 @@ static esp_err_t es8388_write_reg(uint8_t slave_add, uint8_t reg_add, uint8_t da
     res |= i2c_master_write_byte(cmd, reg_add, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_write_byte(cmd, data, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_stop(cmd);
-    res |= i2c_master_cmd_begin(0, cmd, 1000 / portTICK_RATE_MS);
+    res |= i2c_master_cmd_begin(0, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
     ES_ASSERT(res, "es8388_write_reg error", -1);
     return res;
@@ -110,7 +110,7 @@ static esp_err_t es8388_read_reg(uint8_t reg_add, uint8_t *p_data)
     res |= i2c_master_write_byte(cmd, ES8388_ADDR, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_write_byte(cmd, reg_add, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_stop(cmd);
-    res |= i2c_master_cmd_begin(0, cmd, 1000 / portTICK_RATE_MS);
+    res |= i2c_master_cmd_begin(0, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
 
     cmd = i2c_cmd_link_create();
@@ -118,7 +118,7 @@ static esp_err_t es8388_read_reg(uint8_t reg_add, uint8_t *p_data)
     res |= i2c_master_write_byte(cmd, ES8388_ADDR | 0x01, 1 /*ACK_CHECK_EN*/);
     res |= i2c_master_read_byte(cmd, &data, 0x01/*NACK_VAL*/);
     res |= i2c_master_stop(cmd);
-    res |= i2c_master_cmd_begin(0, cmd, 1000 / portTICK_RATE_MS);
+    res |= i2c_master_cmd_begin(0, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
 
     ES_ASSERT(res, "es8388_read_reg error", -1);

@@ -85,8 +85,6 @@ void display_init() {
     lv_obj_align(wifi_label,NULL,LV_ALIGN_IN_TOP_RIGHT, 0, 6);
     lv_label_set_text(wifi_label, LV_SYMBOL_WIFI);
     lv_label_set_recolor(wifi_label, true);
-    
-
 
     out_txtarea = lv_textarea_create(lv_scr_act(), NULL);
     lv_obj_set_size(out_txtarea, 300, 180);

@@ -39,18 +39,20 @@
 
 #include "touch.h"
 
-static const char *TAG = TOUCH_TAB_NAME;
+static const char* TAG = TOUCH_TAB_NAME;
 
 // Should create a struct to pass pointers to task, but globals are easier to understand.
-static uint8_t r=0x00, g=0x00, b=0x00;
+static uint8_t r = 0, g = 70, b = 79;
 static lv_style_t bg_style;
-static lv_obj_t *touch_bg;
-static lv_obj_t *coordinates_lbl;
+static lv_obj_t* touch_bg;
+static lv_obj_t* coordinates_label;
 
-void display_touch_tab(lv_obj_t *tv){
+static void touch_task(void* pvParameters);
+
+void display_touch_tab(lv_obj_t* tv){
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
 
-    lv_obj_t *touch_tab = lv_tabview_add_tab(tv, TOUCH_TAB_NAME);
+    lv_obj_t* touch_tab = lv_tabview_add_tab(tv, TOUCH_TAB_NAME);
 
     /* Create the main body object and set background within the tab*/
     touch_bg = lv_obj_create(touch_tab, NULL);
@@ -65,23 +67,29 @@ void display_touch_tab(lv_obj_t *tv){
     static lv_style_t title_style;
     lv_style_init(&title_style);
     lv_style_set_text_font(&title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE);
-    lv_obj_t *tab_title_lbl = lv_label_create(touch_bg, NULL);
-    lv_obj_add_style(tab_title_lbl, LV_OBJ_PART_MAIN, &title_style);
-    lv_label_set_static_text(tab_title_lbl, "FT6336U Capacitive Touch");
-    lv_obj_align(tab_title_lbl, touch_bg, LV_ALIGN_IN_TOP_MID, 0, 10);
+    lv_style_set_text_color(&title_style, LV_STATE_DEFAULT, LV_COLOR_WHITE);
+    lv_obj_t* tab_title_label = lv_label_create(touch_bg, NULL);
+    lv_obj_add_style(tab_title_label, LV_OBJ_PART_MAIN, &title_style);
+    lv_label_set_static_text(tab_title_label, "FT6336U Capacitive Touch");
+    lv_obj_align(tab_title_label, touch_bg, LV_ALIGN_IN_TOP_MID, 0, 10);
 
     /* Create the sensor information label object */
-    lv_obj_t *body_lbl = lv_label_create(touch_bg, NULL);
-    lv_label_set_long_mode(body_lbl, LV_LABEL_LONG_BREAK);
-    lv_label_set_static_text(body_lbl, "The FT6336U is a capacitive touch panel controller that provides X and Y coordinates for touch input."
+    lv_obj_t* body_label = lv_label_create(touch_bg, NULL);
+    lv_label_set_long_mode(body_label, LV_LABEL_LONG_BREAK);
+    lv_label_set_static_text(body_label, "The FT6336U is a capacitive touch panel controller that provides X and Y coordinates for touch input."
         "\n\n\n\nPress the touch buttons below.");
-    lv_obj_set_width(body_lbl, 252);
-    lv_obj_align(body_lbl, touch_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40);
+    lv_obj_set_width(body_label, 252);
+    lv_obj_align(body_label, touch_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40);
+
+    static lv_style_t body_style;
+    lv_style_init(&body_style);
+    lv_style_set_text_color(&body_style, LV_STATE_DEFAULT, LV_COLOR_WHITE);
+    lv_obj_add_style(body_label, LV_OBJ_PART_MAIN, &body_style);
     
-    coordinates_lbl = lv_label_create(touch_bg, NULL);
-    lv_label_set_text(coordinates_lbl, "X: 000,   Y: 000      Pressed: 0");
-    lv_label_set_align(coordinates_lbl, LV_LABEL_ALIGN_CENTER);
-    lv_obj_align(coordinates_lbl, touch_bg, LV_ALIGN_CENTER, 0, 44);
+    coordinates_label = lv_label_create(touch_bg, NULL);
+    lv_label_set_text(coordinates_label, "X: 000,   Y: 000      Pressed: 0");
+    lv_label_set_align(coordinates_label, LV_LABEL_ALIGN_CENTER);
+    lv_obj_align(coordinates_label, touch_bg, LV_ALIGN_CENTER, 0, 44);
 
     /*Create an array for the points of the line*/
     static lv_point_t line_points[] = { {20, 0}, {70, 0} };
@@ -106,17 +114,17 @@ void display_touch_tab(lv_obj_t *tv){
     lv_style_set_line_rounded(&blue_line_style, LV_STATE_DEFAULT, true);
 
     /*Create a line and apply the new style*/
-    lv_obj_t * left_line = lv_line_create(touch_tab, NULL);
+    lv_obj_t* left_line = lv_line_create(touch_tab, NULL);
     lv_line_set_points(left_line, line_points, 2);
     lv_obj_add_style(left_line, LV_LINE_PART_MAIN, &red_line_style);
     lv_obj_align(left_line, NULL, LV_ALIGN_IN_LEFT_MID, 8, 108);
 
-    lv_obj_t * middle_line = lv_line_create(touch_tab, NULL);
+    lv_obj_t* middle_line = lv_line_create(touch_tab, NULL);
     lv_line_set_points(middle_line, line_points, 2);
     lv_obj_add_style(middle_line, LV_LINE_PART_MAIN, &green_line_style);
     lv_obj_align(middle_line, NULL, LV_ALIGN_CENTER, -12, 108);
     
-    lv_obj_t * right_line = lv_line_create(touch_tab, NULL);
+    lv_obj_t* right_line = lv_line_create(touch_tab, NULL);
     lv_line_set_points(right_line, line_points, 2);
     lv_obj_add_style(right_line, LV_LINE_PART_MAIN, &blue_line_style);
     lv_obj_align(right_line, NULL, LV_ALIGN_IN_RIGHT_MID, -30, 108);
@@ -126,7 +134,13 @@ void display_touch_tab(lv_obj_t *tv){
     xTaskCreatePinnedToCore(touch_task, "touchTask", configMINIMAL_STACK_SIZE * 3, NULL, 1, &touch_handle, 1);
 }
 
-void touch_task(void *pvParameters){
+void reset_touch_bg(){
+    r=0x00, g=0x00, b=0x00;
+    lv_style_set_bg_color(&bg_style, LV_STATE_DEFAULT, lv_color_make(r, g, b));
+    lv_obj_add_style(touch_bg, LV_OBJ_PART_MAIN, &bg_style);
+}
+
+static void touch_task(void* pvParameters){
 
     vTaskSuspend(NULL);
 
@@ -135,22 +149,18 @@ void touch_task(void *pvParameters){
         bool press;
 
         FT6336U_GetTouch(&x, &y, &press);
-        char label_stash[200];
-        sprintf(label_stash, "X: %d,   Y: %d      Pressed: %d", x, y, press);
+        char coordinates_str[200];
+        sprintf(coordinates_str, "X: %d,   Y: %d      Pressed: %d", x, y, press);
 
         xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
-        lv_label_set_text(coordinates_lbl, label_stash);
+        lv_label_set_text(coordinates_label, coordinates_str);
         xSemaphoreGive(xGuiSemaphore);
-
+        
         if (Button_WasPressed(button_left)) {
             r+=0x10;
             lv_style_set_bg_color(&bg_style, LV_STATE_DEFAULT, lv_color_make(r, g, b));
             lv_obj_add_style(touch_bg, LV_OBJ_PART_MAIN, &bg_style);
             ESP_LOGI(TAG, "Left Button pressed. R: %x G: %x B:%x", r, g, b);
-
-            // xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
-            // lv_led_on(left_led);
-            // xSemaphoreGive(xGuiSemaphore);
         }
         if (Button_WasPressed(button_middle)) {
             g+=0x10;

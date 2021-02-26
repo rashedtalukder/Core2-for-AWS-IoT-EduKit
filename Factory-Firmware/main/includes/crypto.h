@@ -27,4 +27,4 @@
 
 #define CRYPTO_TAB_NAME "ATECC608-CRYPTO"
 
-void display_crypto_tab(lv_obj_t *tv);
+void display_crypto_tab(lv_obj_t* tv);

@@ -295,22 +295,22 @@ esp_err_t iot_button_set_evt_cb(button_handle_t btn_handle, button_cb_type_t typ
     if (type == BUTTON_CB_PUSH) {
         btn->tap_psh_cb.arg = arg;
         btn->tap_psh_cb.cb = cb;
-        btn->tap_psh_cb.interval = BUTTON_GLITCH_FILTER_TIME_MS / portTICK_RATE_MS;
+        btn->tap_psh_cb.interval = pdMS_TO_TICKS(BUTTON_GLITCH_FILTER_TIME_MS);
         btn->tap_psh_cb.pbtn = btn;
         xTimerChangePeriod(btn->tap_psh_cb.tmr, btn->tap_psh_cb.interval, portMAX_DELAY);
     } else if (type == BUTTON_CB_RELEASE) {
         btn->tap_rls_cb.arg = arg;
         btn->tap_rls_cb.cb = cb;
-        btn->tap_rls_cb.interval = BUTTON_GLITCH_FILTER_TIME_MS / portTICK_RATE_MS;
+        btn->tap_rls_cb.interval = pdMS_TO_TICKS(BUTTON_GLITCH_FILTER_TIME_MS);
         btn->tap_rls_cb.pbtn = btn;
         xTimerChangePeriod(btn->tap_rls_cb.tmr, btn->tap_psh_cb.interval, portMAX_DELAY);
     } else if (type == BUTTON_CB_TAP) {
         btn->tap_short_cb.arg = arg;
         btn->tap_short_cb.cb = cb;
-        btn->tap_short_cb.interval = BUTTON_GLITCH_FILTER_TIME_MS / portTICK_RATE_MS;
+        btn->tap_short_cb.interval = pdMS_TO_TICKS(BUTTON_GLITCH_FILTER_TIME_MS);
         btn->tap_short_cb.pbtn = btn;
     } else if (type == BUTTON_CB_SERIAL) {
-        iot_button_set_serial_cb(btn_handle, 1, 1000 / portTICK_RATE_MS, cb, arg);
+        iot_button_set_serial_cb(btn_handle, 1, pdMS_TO_TICKS(1000), cb, arg);
     }
     return ESP_OK;
 }

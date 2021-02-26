@@ -25,4 +25,4 @@
 
 #pragma once
 
-void sound_task(void *arg);
+void sound_task(void* arg);

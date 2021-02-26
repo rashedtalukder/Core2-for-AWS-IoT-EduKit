@@ -326,7 +326,7 @@ static void va_button_gpio_task(void *arg)
     while (1) {
         if (xQueueReceive(button_st.ui_button_queue, &io_num, 0) != pdTRUE) {
             //ESP_LOGE(TAG, "Failed to receive from led queue");
-            vTaskDelay(100/portTICK_RATE_MS);
+            vTaskDelay(pdMS_TO_TICKS(100));
         } else {
             printf("%s: button pressed: %d\n", TAG, io_num);
             if (io_num == button_st.but_cfg.va_button_gpio_num[VA_BUTTON_TAP_TO_TALK]) {
@@ -345,7 +345,7 @@ static void va_button_gpio_task(void *arg)
         if(va_button_factory_rst_en) {
             /* Do not set any led here. Instead set the Factory reset led when starting provisioning after restart. */
             va_ui_set_state(VA_UI_OFF);
-            vTaskDelay(1000 / portTICK_RATE_MS);
+            vTaskDelay(pdMS_TO_TICKS(1000));
             va_nvs_flash_erase();
             va_dsp_reset();
             media_hal_deinit(media_hal_get_handle());
@@ -410,7 +410,7 @@ esp_err_t va_button_init(const button_cfg_t *button_cfg, int (*button_event_cb)(
             return ESP_FAIL;
         }
 #ifdef CONFIG_ULP_COPROC_ENABLED
-        va_button_timer_handle = xTimerCreate("va_button_timer", VOL_NOTIF_DELAY / portTICK_RATE_MS, pdFALSE, NULL, va_button_timer_cb);
+        va_button_timer_handle = xTimerCreate("va_button_timer", pdMS_TO_TICKS(VOL_NOTIF_DELAY), pdFALSE, NULL, va_button_timer_cb);
 
     va_ulp_button_conf.rel_thres = 200;             // Range: 0 - 4096
     va_ulp_button_conf.wakeup_period = 100;         // Time in milliseconds
