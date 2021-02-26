@@ -1,5 +1,5 @@
 # AWS IoT EduKit Pre-Provisioned MCU Device Registration Helper
-# v1.0.0
+# v1.1.0
 #
 # Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
 # 
@@ -27,7 +27,7 @@ import os
 
 os.environ["CRYPTOAUTHLIB_NOUSB"] = "1"
 
-subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r'
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r',
 'requirements.txt'])
 
 from pyasn1_modules import pem
@@ -42,6 +42,8 @@ from datetime import datetime, timedelta
 import re
 import binascii
 import json
+from botocore.exceptions import ClientError
+import boto3
 
 # Verify esptool is installed and environmental variables are added to PATH
 try:
@@ -72,6 +74,7 @@ sys.path.append(trustplatform_aws_path)
 from helper_aws import *
 from Microchip_manifest_handler import *
 
+iot = boto3.client('iot')
 
 def check_environment():
     """Checks to ensure environment is set per AWS IoT EduKit instructions
@@ -94,12 +97,12 @@ def check_environment():
         exit(0)
     print("Python 3.7.x detected...")
 
-    aws_iot_endpoint = subprocess.run(["aws", "iot", "describe-endpoint", "--endpoint-type", "iot:Data-ATS"], universal_newlines=True, capture_output=True)
-    if aws_iot_endpoint.returncode != 0:
+    try:
+        aws_iot_endpoint = iot.describe_endpoint(endpointType='iot:Data-ATS')
+    except ClientError:
+        print(ClientError.response['Error']['Code'])
         print("Error with AWS CLI! Follow the configurtion docs at 'https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html'")
-        exit(0)
-    aws_cli_resp = json.loads(aws_iot_endpoint.stdout)
-    print(f"AWS CLI configured for IoT endpoint: {aws_cli_resp['endpointAddress']}")
+    print(f"AWS CLI configured for IoT endpoint: {aws_iot_endpoint['endpointAddress']}")
 
 
 def generate_signer_certificate():
@@ -128,19 +131,20 @@ def generate_signer_certificate():
         signer_key_file.write(signer_key_pem)
 
     print("Generating self-signed x.509 certificate...")
-    aws_iot_reg_code = subprocess.run(["aws", "iot", "get-registration-code"], universal_newlines=True, capture_output=True)
-    if aws_iot_reg_code.returncode != 0:
+    try:
+        aws_iot_reg_code = iot.get_registration_code()
+    except ClientError:
+        print(ClientError.response['Error']['Code'])
         print("Error with the AWS CLI when running the command 'aws iot get-registration-code'.")
         exit(0)
     
-    aws_cli_resp = json.loads(aws_iot_reg_code.stdout)
     signer_public_key = signer_key.public_key()
     time_now = datetime.utcnow()
     days_to_expire = 365
     x509_cert = (
         x509.CertificateBuilder()
-        .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, aws_cli_resp['registrationCode']),]))
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, aws_cli_resp['registrationCode']),]))
+        .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, aws_iot_reg_code['registrationCode']),]))
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, aws_iot_reg_code['registrationCode']),]))
         .serial_number(x509.random_serial_number())
         .public_key(signer_public_key)
         .not_valid_before(time_now)
