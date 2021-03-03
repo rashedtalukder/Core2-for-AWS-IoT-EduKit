@@ -27,7 +27,7 @@ import os
 
 os.environ["CRYPTOAUTHLIB_NOUSB"] = "1"
 
-subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r'
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r',
 'requirements.txt'])
 
 from pyasn1_modules import pem
