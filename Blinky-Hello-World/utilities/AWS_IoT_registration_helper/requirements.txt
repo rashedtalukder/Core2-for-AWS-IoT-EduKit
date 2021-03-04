@@ -1,4 +1,6 @@
 esptool>=3.0
+botocore>-1.20.16
+boto3>=1.17.16
 cryptography==3.4.4
 pyasn1_modules==0.1.5
 pyasn1==0.3.7
