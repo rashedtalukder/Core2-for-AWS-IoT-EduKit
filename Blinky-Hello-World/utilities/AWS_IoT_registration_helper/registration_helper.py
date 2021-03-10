@@ -44,17 +44,7 @@ import binascii
 import json
 from botocore.exceptions import ClientError
 import boto3
-
-# Verify esptool is installed and environmental variables are added to PATH
-try:
-    import esptool
-except ImportError: 
-    idf_path = os.getenv("IDF_PATH")
-    if not idf_path or not os.path.exists(idf_path):
-        print("\n\nESP-IDF not found! Install ESP-IDF and run the export script...\n\n")
-        raise
-    sys.path.insert(0, os.path.join(idf_path, "components", "esptool_py", "esptool"))
-    import esptool
+import esptool
 
 # Import the Espressif CryptoAuthLib Utility libraries
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname( __file__ ), "..", "..", "components", "esp-cryptoauthlib", "esp_cryptoauth_utility")))
@@ -81,21 +71,16 @@ def check_environment():
 
     Verifies Miniconda is installed and the 'edukit' virtual environment
     is activated.
-    Verifies Python 3.7.x is installed and is being used to execute this script.
-    Verifies that the AWS CLI is installed and configured correctly. Prints
+    Verifies Python 3.6.x+ is installed and is being used to execute this script.
+    Verifies that the AWS CLI is installed and configured. Prints
     AWS IoT endpoint address.
     """
-    conda_env = os.environ.get('CONDA_DEFAULT_ENV')
-    if conda_env == None or conda_env == "base":
-        print("The 'edukit' Conda environment is not created or activated:\n  To install miniconda, visit https://docs.conda.io/en/latest/miniconda.html.\n  To create the environment, use the command 'conda create -n edukit python=3.7'\n  To activate the environment, use the command 'conda activate edukit'\n")
-    else:
-        print("Conda 'edukit' environment active...")
     
     if sys.version_info[0] != 3 or sys.version_info[1] < 6:
         print(f"Python version {sys.version}")
-        print("Incorrect version of Python detected. Must use Python version 3.6.x. You might want to try the command 'conda install python=3.7'.")
+        print("Incorrect version of Python detected. Must use Python version 3.6.x. Please check your Python installation and that you're using the PlatformIO CLI terminal in VS Code'.")
         exit(0)
-    print("Python 3.7.x detected...")
+    print(f"Python {sys.version} detected...")
 
     try:
         aws_iot_endpoint = iot.describe_endpoint(endpointType='iot:Data-ATS')
