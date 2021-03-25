@@ -246,7 +246,7 @@ void aws_iot_task(void *param) {
     
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "**************************************");
-    ESP_LOGI(TAG, "*Client Id - %s      * ", CLIENT_ID);
+    ESP_LOGI(TAG, "* Client Id - %s     * ", CLIENT_ID);
     ESP_LOGI(TAG, "**************************************\n\n");
 
     const int PUBLISH_TOPIC_LEN = strlen(PUBLISH_TOPIC);
