@@ -67,10 +67,7 @@ from Microchip_manifest_handler import *
 iot = boto3.client('iot')
 
 def check_environment():
-    """Checks to ensure environment is set per AWS IoT EduKit instructions
-
-    Verifies Miniconda is installed and the 'edukit' virtual environment
-    is activated.
+    """Checks to ensure environment is set per AWS IoT EduKit instructions.
     Verifies Python 3.6.x+ is installed and is being used to execute this script.
     Verifies that the AWS CLI is installed and configured. Prints
     AWS IoT endpoint address.
@@ -78,7 +75,7 @@ def check_environment():
     
     if sys.version_info[0] != 3 or sys.version_info[1] < 6:
         print(f"Python version {sys.version}")
-        print("Incorrect version of Python detected. Must use Python version 3.6.x. Please check your Python installation and that you're using the PlatformIO CLI terminal in VS Code'.")
+        print("Incorrect version of Python detected. Must use Python version 3.6.x+. Please check your Python installation and that you're using the PlatformIO CLI terminal in VS Code'.")
         exit(0)
     print(f"Python {sys.version} detected...")
 

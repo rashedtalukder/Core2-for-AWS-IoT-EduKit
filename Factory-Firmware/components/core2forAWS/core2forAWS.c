@@ -2,7 +2,6 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
 #include "freertos/queue.h"
 #include "driver/spi_common.h"
 #include "esp_idf_version.h"

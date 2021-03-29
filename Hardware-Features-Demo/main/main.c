@@ -52,7 +52,7 @@ void app_main(void)
 
     Core2ForAWS_Init();
     FT6336U_Init();
-    Core2ForAWS_LCD_Init();
+    Core2ForAWS_Display_Init();
     Core2ForAWS_Button_Init();
     Core2ForAWS_Sk6812_Init();
     BM8563_Init();
@@ -173,7 +173,7 @@ void app_main(void)
 
 static void brightness_slider_event_cb(lv_obj_t * slider, lv_event_t event) {
     if(event == LV_EVENT_VALUE_CHANGED) {
-        Core2ForAWS_LCD_SetBrightness(lv_slider_get_value(slider));
+        Core2ForAWS_Display_SetBrightness(lv_slider_get_value(slider));
     }
 }
 

@@ -6,12 +6,13 @@
 /*********************
  *      INCLUDES
  *********************/
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "ili9341.h"
 #include "disp_spi.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "axp192.h"
 
 /*********************

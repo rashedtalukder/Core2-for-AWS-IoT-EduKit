@@ -450,7 +450,7 @@ static void esp_rmaker_task(void *param)
     while (esp_rmaker_priv_data->state != ESP_RMAKER_STATE_STOP_REQUESTED) {
         esp_rmaker_handle_work_queue(esp_rmaker_priv_data);
         /* 2 sec delay to prevent spinning */
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        vTaskDelay(2000 / portTICK_RATE_MS);
     }
 rmaker_end:
     esp_rmaker_mqtt_disconnect();

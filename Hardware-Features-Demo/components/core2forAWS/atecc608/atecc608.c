@@ -25,15 +25,15 @@ static int configure_mbedtls_rng(void) {
     int ret;
     mbedtls_ctr_drbg_init(&ctr_drbg);
 
-    ESP_LOGI(TAG, " Seeding the random number generator...");
+    ESP_LOGI(TAG, "Seeding the random number generator...");
 
     mbedtls_entropy_init(&entropy);
     ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
         (const unsigned char *) TAG, strlen(TAG));
     if (ret != 0) {
-        ESP_LOGI(TAG, " failed  ! mbedtls_ctr_drbg_seed returned %d", ret);
+        ESP_LOGI(TAG, "failed  ! mbedtls_ctr_drbg_seed returned %d", ret);
     } else {
-        ESP_LOGI(TAG, " ok");
+        ESP_LOGI(TAG, "ok");
     }
     return ret;
 }
