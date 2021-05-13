@@ -9,15 +9,18 @@
 #include "esp_system.h"
 #include "esp_err.h"
 
-#include "axp192.h"
 #include "core2forAWS.h"
 
 #define DISPLAY_BRIGHTNESS_MIN_VOLT 2200
 #define DISPLAY_BRIGHTNESS_MAX_VOLT 3300
 #define LV_TICK_PERIOD_MS 1
 
+static const char *TAG = "Core2 for AWS";
+
 void Core2ForAWS_Init() {
     Core2ForAWS_PMU_Init(3300, 0, 0, 2700);
+
+    #if CONFIG_SOFTWARE_ILI9342C_SUPPORT || CONFIG_SOFTWARE_SDCARD_SUPPORT
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = 23,
         .miso_io_num = 38,
@@ -27,6 +30,42 @@ void Core2ForAWS_Init() {
         .max_transfer_sz = 320 * 64 * 3,
     };
     spi_bus_initialize(SPI_HOST_USE, &bus_cfg, SPI_DMA_CHAN);
+    #endif
+
+    #if CONFIG_SOFTWARE_ILI9342C_SUPPORT
+    Core2ForAWS_Display_Init();
+    Core2ForAWS_PMU_Init(3300, 0, 0, 2700);
+    #else
+    Core2ForAWS_PMU_Init(0, 0, 0, 0);
+    #endif
+
+    #if CONFIG_SOFTWARE_FT6336U_SUPPORT
+    FT6336U_Init();
+    #endif
+    
+    #if CONFIG_SOFTWARE_BUTTON_SUPPORT
+    Core2ForAWS_Button_Init();
+    #endif
+
+    #if CONFIG_SOFTWARE_SK6812_SUPPORT
+    Core2ForAWS_Sk6812_Init();
+    #endif
+
+    #if CONFIG_SOFTWARE_MPU6886_SUPPORT
+    MPU6886_Init();
+    #endif
+
+    #if CONFIG_SOFTWARE_RTC_SUPPORT
+    BM8563_Init();
+    #endif
+
+    #if CONFIG_SOFTWARE_ATECC608_SUPPORT
+    ATCA_STATUS ret = Atecc608_Init();
+    if (ret != ATCA_SUCCESS){
+        ESP_LOGE(TAG, "ATECC608 secure element initialization error!");
+        abort();
+    }
+    #endif
 }
 
 /* ==================================================================================================*/

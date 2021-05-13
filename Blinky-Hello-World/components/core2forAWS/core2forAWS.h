@@ -4,6 +4,7 @@
  */
 
 #pragma once
+#include "axp192.h"
 
 #if CONFIG_SOFTWARE_SDCARD_SUPPORT
 #include "esp_vfs_fat.h"
@@ -72,6 +73,21 @@ extern SemaphoreHandle_t xGuiSemaphore;
 #include "button.h"
 #endif
 
+#if CONFIG_SOFTWARE_MPU6886_SUPPORT
+#include "mpu6886.h"
+#endif
+
+#if CONFIG_SOFTWARE_RTC_SUPPORT
+#include "bm8563.h"
+#endif
+
+#if CONFIG_SOFTWARE_ATECC608_SUPPORT
+#include "cryptoauthlib.h"
+#include "atecc608.h"
+#endif
+
+
+#if CONFIG_SOFTWARE_ILI9342C_SUPPORT || CONFIG_SOFTWARE_SDCARD_SUPPORT
 /**
  * @brief The SPI2 peripheral that controls the SPI bus.
  * 
@@ -93,10 +109,23 @@ extern SemaphoreHandle_t xGuiSemaphore;
 /* @[declare_spi_dma_chan] */
 #define SPI_DMA_CHAN 2
 /* @[declare_spi_dma_chan] */
+#endif
 
 /**
- * @brief Initializes the power chip for battery charging
- * and the SPI bus used for the screen and the SD card.
+ * @brief Initializes the power chip with default values, enables
+ * battery charging, and initializes all enabled hardware features.
+ * 
+ * At minimum, this helper function initializes the AXP192 power
+ * management unit (PMU) with the green LED and vibration motor
+ * off, as well as initializing the following enabled features:
+ * 1. Display — initializes the SPI bus, also powers the controller and 
+ * backlight to ~50% brightness.
+ * 2. The touch controller via the FT6336U.
+ * 3. Virtual left, middle, right buttons using the touch controller.
+ * 4. The SK6812 side LED bars.
+ * 5. The 6-axis IMU via the MPU6886.
+ * 6. The real-time clock via the BM8563
+ * features.
  */
 /* @[declare_core2foraws_init] */
 void Core2ForAWS_Init();

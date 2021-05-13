@@ -44,12 +44,6 @@
 #include "nvs_flash.h"
 
 #include "core2forAWS.h"
-#include "lvgl/lvgl.h"
-#include "ft6336u.h"
-#include "axp192.h"
-#include "cryptoauthlib.h"
-#include "i2c_device.h"
-#include "atecc608.h"
 
 #include "aws_iot_config.h"
 #include "aws_iot_log.h"
@@ -337,10 +331,6 @@ void app_main()
     spi_mutex = xSemaphoreCreateMutex();
 
     Core2ForAWS_Init();
-    FT6336U_Init();
-    Core2ForAWS_Display_Init();
-    Core2ForAWS_Button_Init();
-    Core2ForAWS_Sk6812_Init();
     Core2ForAWS_Display_SetBrightness(80);
     
     ui_init();
