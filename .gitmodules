@@ -1,3 +1,6 @@
 [submodule "Blinky-Hello-World/components/core2forAWS/tft/lvgl/lvgl"]
 	path = Blinky-Hello-World/components/core2forAWS/tft/lvgl/lvgl
 	url = https://github.com/lvgl/lvgl.git
+[submodule "Blinky-Hello-World/components/esp-aws-iot"]
+	path = Blinky-Hello-World/components/esp-aws-iot
+	url = https://github.com/espressif/esp-aws-iot.git
