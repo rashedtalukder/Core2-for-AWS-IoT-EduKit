@@ -8,25 +8,13 @@
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
 
-#include "esp_freertos_hooks.h"
 #include "esp_log.h"
-#include "esp_system.h"
-#include "esp_vfs_fat.h"
 #include "driver/gpio.h"
-#include "driver/spi_common.h"
-#include "sdmmc_cmd.h"
 
 #include "core2forAWS.h"
-#include "lvgl/lvgl.h"
-#include "ft6336u.h"
-#include "speaker.h"
-#include "bm8563.h"
-#include "mpu6886.h"
-#include "axp192.h"
-#include "cryptoauthlib.h"
+
 #include "atecc608_test.h"
 #include "sk6812_test.h"
-#include "i2c_device.h"
 #include "mic_fft_test.h"
 
 static void brightness_slider_event_cb(lv_obj_t * slider, lv_event_t event);
@@ -37,25 +25,13 @@ static void speakerTask(void *arg);
 static void ateccTask(void *arg);
 static void sdcardTest();
 
-// in disp_spi.c
-extern SemaphoreHandle_t spi_mutex;
-
-extern void spi_poll();
-
 void app_main(void)
 {
     esp_log_level_set("gpio", ESP_LOG_NONE);
     esp_log_level_set("ILI9341", ESP_LOG_NONE);
 
-    spi_mutex = xSemaphoreCreateMutex();
-
     Core2ForAWS_Init();
-    FT6336U_Init();
-    Core2ForAWS_Display_Init();
-    Core2ForAWS_Button_Init();
-    Core2ForAWS_Sk6812_Init();
-    BM8563_Init();
-    MPU6886_Init();
+
     sdcardTest();
     sk6812Test();
 
@@ -213,7 +189,7 @@ static void ateccTask(void *arg) {
 /*
 //  note: Because the SD card and the screen use the same spi bus so if want use sd card api, must
 xSemaphoreTake(spi_mutex, portMAX_DELAY);
-// call spi poll to solve spi share bug (maybe a bug)
+// call spi_poll to solve SPI bus sharing
 spi_poll();
 // call sd card api
 xSemaphoreGive(spi_mutex);

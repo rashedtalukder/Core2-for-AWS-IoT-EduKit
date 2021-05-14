@@ -327,8 +327,6 @@ void app_main()
         err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(err);
-    
-    spi_mutex = xSemaphoreCreateMutex();
 
     Core2ForAWS_Init();
     Core2ForAWS_Display_SetBrightness(80);
