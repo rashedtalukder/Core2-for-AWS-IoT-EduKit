@@ -1,5 +1,5 @@
 /*
- * AWS IoT EduKit - Cloud Connected Blinky v1.2.1
+ * AWS IoT EduKit - Cloud Connected Blinky v1.2.2
  * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  * Additions Copyright 2016 Espressif Systems (Shanghai) PTE LTD
  *
@@ -53,7 +53,7 @@
 #include "blink.h"
 #include "ui.h"
 
-static const char *TAG = "Blinky";
+static const char *TAG = "MAIN";
 
 /* FreeRTOS event group to signal when we are connected & ready to make a request */
 static EventGroupHandle_t wifi_event_group;
@@ -334,12 +334,6 @@ void app_main()
     ui_init();
     
     initialise_wifi();
-
-    ATCA_STATUS ret = Atecc608_Init();
-    if (ret != ATCA_SUCCESS){
-        ESP_LOGE(TAG, "ATECC608 secure element initialization error!");
-        abort();
-    }
 
     xTaskCreatePinnedToCore(&aws_iot_task, "aws_iot_task", 4096 * 2, NULL, 5, NULL, 1);
     xTaskCreatePinnedToCore(&blink_task, "blink_task", 4096 * 1, NULL, 2, &xBlink, 1);

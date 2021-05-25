@@ -206,33 +206,33 @@ static void sdcardTest() {
         return;
     } 
 
-    ESP_LOGI("sdcard", "Success to initialize the sd card");
+    ESP_LOGI("SDCARD", "Success to initialize the sd card");
     sdmmc_card_print_info(stdout, card);
 
     xSemaphoreTake(spi_mutex, portMAX_DELAY);
     spi_poll();
     char test_file[] =  MOUNT_POINT"/hello.txt";
-    ESP_LOGI("sdcard", "Write file to %s", test_file);
+    ESP_LOGI("SDCARD", "Write file to %s", test_file);
     FILE* f = fopen(test_file, "w+");
     if (f == NULL) {
-        ESP_LOGE("sdcard", "Failed to open file for writing");
+        ESP_LOGE("SDCARD", "Failed to open file for writing");
         xSemaphoreGive(spi_mutex);
         return;
     }
-    ESP_LOGI("sdcard", "Write -> Hello %s!\n", "SD Card");
+    ESP_LOGI("SDCARD", "Write -> Hello %s!\n", "SD Card");
     fprintf(f, "Hello %s!\r\n", "SD Card");
     fclose(f);
 
-    ESP_LOGI("sdcard", "Reading file %s", test_file);
+    ESP_LOGI("SDCARD", "Reading file %s", test_file);
     f = fopen(test_file, "r");
     if (f == NULL) {
-        ESP_LOGE("sdcard", "Failed to open file for reading");
+        ESP_LOGE("SDCARD", "Failed to open file for reading");
         xSemaphoreGive(spi_mutex);
         return;
     }
     char line[64];
     fgets(line, sizeof(line), f);
     fclose(f);
-    ESP_LOGI("sdcard", "Read <- %s", line);
+    ESP_LOGI("SDCARD", "Read <- %s", line);
     xSemaphoreGive(spi_mutex);
 }

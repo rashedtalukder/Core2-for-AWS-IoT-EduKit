@@ -15,7 +15,7 @@
 #define DISPLAY_BRIGHTNESS_MAX_VOLT 3300
 #define LV_TICK_PERIOD_MS 1
 
-static const char *TAG = "Core2 for AWS";
+static const char *TAG = "Core2forAWS";
 
 void Core2ForAWS_Init() {
     Core2ForAWS_PMU_Init(3300, 0, 0, 2700);

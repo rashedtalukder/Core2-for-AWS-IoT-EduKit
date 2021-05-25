@@ -129,7 +129,7 @@ extern SemaphoreHandle_t xGuiSemaphore;
  * 
  * At minimum, this helper function initializes the AXP192 power
  * management unit (PMU) with the green LED and vibration motor
- * off, as well as initializing the following enabled features:
+ * off, as well as initializing the following features (if enabled):
  * 1. Display — initializes the SPI bus, also powers the controller and 
  * backlight to ~50% brightness.
  * 2. The touch controller via the FT6336U.
