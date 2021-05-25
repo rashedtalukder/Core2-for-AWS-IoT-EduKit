@@ -6,12 +6,6 @@
 #pragma once
 #include "axp192.h"
 
-#if CONFIG_SOFTWARE_SDCARD_SUPPORT
-#include "esp_freertos_hooks.h"
-#include "esp_vfs_fat.h"
-#include "sdmmc_cmd.h"
-#endif
-
 #if CONFIG_SOFTWARE_ILI9342C_SUPPORT
 #include "freertos/semphr.h"
 #include "lvgl/lvgl.h"
@@ -87,18 +81,23 @@ extern SemaphoreHandle_t xGuiSemaphore;
 #include "atecc608.h"
 #endif
 
-#if CONFIG_SOFTWARE_SPEAKER_SUPPORT
-#include "speaker.h"
+#if CONFIG_SOFTWARE_SPEAKER_SUPPORT || CONFIG_SOFTWARE_MIC_SUPPORT
+#include "driver/i2s.h"
 #endif
 
 #if CONFIG_SOFTWARE_MIC_SUPPORT
 #include "microphone.h"
 #endif
 
-#if CONFIG_SOFTWARE_SPEAKER_SUPPORT || CONFIG_SOFTWARE_MIC_SUPPORT
-#include "driver/i2s.h"
+#if CONFIG_SOFTWARE_SPEAKER_SUPPORT
+#include "speaker.h"
 #endif
 
+#if CONFIG_SOFTWARE_SDCARD_SUPPORT
+#include "esp_freertos_hooks.h"
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
+#endif
 
 #if CONFIG_SOFTWARE_ILI9342C_SUPPORT || CONFIG_SOFTWARE_SDCARD_SUPPORT
 /**
@@ -130,7 +129,7 @@ extern SemaphoreHandle_t xGuiSemaphore;
  * 
  * At minimum, this helper function initializes the AXP192 power
  * management unit (PMU) with the green LED and vibration motor
- * off, as well as initializing the following enabled features:
+ * off, as well as initializing the following features (if enabled):
  * 1. Display — initializes the SPI bus, also powers the controller and 
  * backlight to ~50% brightness.
  * 2. The touch controller via the FT6336U.

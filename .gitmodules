@@ -1,3 +1,0 @@
-[submodule "Blinky-Hello-World/components/core2forAWS/tft/lvgl/lvgl"]
-	path = Blinky-Hello-World/components/core2forAWS/tft/lvgl/lvgl
-	url = https://github.com/lvgl/lvgl.git
