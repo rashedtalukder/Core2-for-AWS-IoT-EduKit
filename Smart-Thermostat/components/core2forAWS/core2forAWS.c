@@ -17,10 +17,8 @@
 
 static const char *TAG = "Core2forAWS";
 
-void Core2ForAWS_Init() {
-    Core2ForAWS_PMU_Init(3300, 0, 0, 2700);
-
-    #if CONFIG_SOFTWARE_ILI9342C_SUPPORT || CONFIG_SOFTWARE_SDCARD_SUPPORT
+void Core2ForAWS_Init() {    
+#if CONFIG_SOFTWARE_ILI9342C_SUPPORT || CONFIG_SOFTWARE_SDCARD_SUPPORT
     spi_mutex = xSemaphoreCreateMutex();
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = 23,
@@ -31,42 +29,42 @@ void Core2ForAWS_Init() {
         .max_transfer_sz = 320 * 64 * 3,
     };
     spi_bus_initialize(SPI_HOST_USE, &bus_cfg, SPI_DMA_CHAN);
-    #endif
+#endif
 
-    #if CONFIG_SOFTWARE_ILI9342C_SUPPORT
-    Core2ForAWS_Display_Init();
+#if CONFIG_SOFTWARE_ILI9342C_SUPPORT
     Core2ForAWS_PMU_Init(3300, 0, 0, 2700);
-    #else
+    Core2ForAWS_Display_Init();
+#else
     Core2ForAWS_PMU_Init(0, 0, 0, 0);
-    #endif
+#endif
 
-    #if CONFIG_SOFTWARE_FT6336U_SUPPORT
+#if CONFIG_SOFTWARE_FT6336U_SUPPORT
     FT6336U_Init();
-    #endif
+#endif
     
-    #if CONFIG_SOFTWARE_BUTTON_SUPPORT
+#if CONFIG_SOFTWARE_BUTTON_SUPPORT
     Core2ForAWS_Button_Init();
-    #endif
+#endif
 
-    #if CONFIG_SOFTWARE_SK6812_SUPPORT
+#if CONFIG_SOFTWARE_SK6812_SUPPORT
     Core2ForAWS_Sk6812_Init();
-    #endif
+#endif
 
-    #if CONFIG_SOFTWARE_MPU6886_SUPPORT
+#if CONFIG_SOFTWARE_MPU6886_SUPPORT
     MPU6886_Init();
-    #endif
+#endif
 
-    #if CONFIG_SOFTWARE_RTC_SUPPORT
+#if CONFIG_SOFTWARE_RTC_SUPPORT
     BM8563_Init();
     #endif
 
-    #if CONFIG_SOFTWARE_ATECC608_SUPPORT
+#if CONFIG_SOFTWARE_ATECC608_SUPPORT
     ATCA_STATUS ret = Atecc608_Init();
     if (ret != ATCA_SUCCESS){
         ESP_LOGE(TAG, "ATECC608 secure element initialization error!");
         abort();
     }
-    #endif
+#endif
 }
 
 /* ==================================================================================================*/
@@ -345,10 +343,10 @@ static void lv_tick_task(void *arg) {
 /**
  * @brief The FreeRTOS task that periodically calls lv_task_handler
  * 
- * A FreeRTOS task function that calls [lv_task_handler](https://docs.lvgl.io/v7/en/html/porting/task-handler.html)
+ * A FreeRTOS task function that calls [lv_task_handler](https://docs.lvgl.io/7.11/g/task-handler.html)
  * after a tick (depends on task prioritization), which executes 
  * LVGL tasks to then pass to the display controller. Learn more 
- * about LVGL Tasks[https://docs.lvgl.io/v7/en/html/overview/task.html].
+ * about LVGL Tasks[https://docs.lvgl.io/7.11/ew/task.html].
  */
 static void guiTask(void *pvParameter) {
     

@@ -8,6 +8,8 @@
 /**
  * @brief Initializes the FT6336U over I2C.
  * 
+ * @note The Core2ForAWS_Init() calls this function
+ * when the hardware feature is enabled.
  * @note It creates a FreeRTOS task with the task name `FT6336Task` and installs
  * an ISR on the interrupt pin FT6336U_INTR_PIN.
  *

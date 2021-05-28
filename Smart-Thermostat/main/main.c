@@ -467,8 +467,8 @@ void app_main()
     }
     ESP_ERROR_CHECK(err);
     
-    spi_mutex = xSemaphoreCreateMutex();
     xMaxNoiseSemaphore = xSemaphoreCreateMutex();
+    
     Core2ForAWS_Init();
     Core2ForAWS_Display_SetBrightness(80);
     Core2ForAWS_LED_Enable(0x01);
@@ -478,5 +478,4 @@ void app_main()
     initialise_wifi();
     
     xTaskCreatePinnedToCore(&aws_iot_task, "aws_iot_task", 4096*2, NULL, 5, NULL, 1);
-    
 }

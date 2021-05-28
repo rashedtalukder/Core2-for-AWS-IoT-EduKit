@@ -21,7 +21,7 @@
 #include <audio_board.h>
 #include "esp_intr_alloc.h"
 #include <m5stackcore2_init.h>
-#include "axp192.h"
+#include "core2forAWS.h"
 #include "media_hal_playback.h"
 
 #define PLAT_TAG "AUDIO_BOARD"
@@ -93,11 +93,7 @@ esp_err_t audio_board_i2s_init_default(i2s_config_t *i2s_cfg_dft)
     i2s_cfg_dft->sample_rate = SAMPLE_RATE_DAC;
     i2s_cfg_dft->bits_per_sample = M5STACKCORE2_BITS_PER_SAMPLE;
     i2s_cfg_dft->channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT;
-#if ESP_IDF_VERSION > ESP_IDF_VERSION_VAL(4, 1, 0)
-        i2s_cfg_dft->communication_format = I2S_COMM_FORMAT_STAND_I2S,
-#else
-		i2s_cfg_dft->communication_format = I2S_COMM_FORMAT_I2S;
-#endif
+    i2s_cfg_dft->communication_format = I2S_COMM_FORMAT_I2S;
     i2s_cfg_dft->dma_buf_count = 3;                   /*!< number of dma buffer */
     i2s_cfg_dft->dma_buf_len = 300;                   /*!< size of each dma buffer (Byte) */
     i2s_cfg_dft->intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
@@ -169,11 +165,11 @@ esp_err_t audio_board_i2s_set_spk_mic_mode(int mode)
 
     if(mode == MODE_SPK)
     {
-        Axp192_SetGPIO2Level(1);
+        Core2ForAWS_Speaker_Enable(1);
     }
     else
     {
-        Axp192_SetGPIO2Level(0);
+        Core2ForAWS_Speaker_Enable(0);
     }
 
     return err;

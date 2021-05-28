@@ -18,7 +18,7 @@
  * 
  * To avoid conflicts with multiple threads attempting to
  * write to the display, take this FreeRTOS semaphore first,
- * use the [LVGL widget](https://docs.lvgl.io/v7/en/html/widgets/index.html) 
+ * use the [LVGL widget](https://docs.lvgl.io/7.11/widgets/index.html) 
  * API of choice, and then give the semaphore.
  * The FreeRTOS task, guiTask(), will write to the ILI9342C display 
  * controller to update the display.
@@ -203,7 +203,9 @@ extern Button_t* button_middle;
  * 
  * **Example:**
  * 
- * Print "right button pressed" when the on-screen right button is pressed.
+ * Print "right button pressed" when the on-screen right button is 
+ * pressed.
+ * 
  * @code{c}
  *  if (Button_WasPressed(button_right)) {
  *      printf("right button pressed");
@@ -215,8 +217,11 @@ extern Button_t* button_right;
 /* @[declare_button_right] */
 
 /**
- * @brief Initializes the @ref button_left, @ref button_middle, @ref button_right virtual 
- * buttons using the ft6336u touch controller.
+ * @brief Initializes the @ref button_left, @ref button_middle, @ref 
+ * button_right virtual buttons using the ft6336u touch controller.
+ * 
+ * @note The Core2ForAWS_Init() calls this function
+ * when the hardware feature is enabled.
  */
 /* @[declare_core2foraws_button_init] */
 void Core2ForAWS_Button_Init();
@@ -245,8 +250,10 @@ void Core2ForAWS_Speaker_Enable(uint8_t state);
  * pins.
  * 
  * @note The Core2ForAWS_Init() calls this function with parameters 
- * to initialize the vibration motor (off) and display 
- * brightness (~55%) at the same time.
+ * to initialize the vibration motor and display backlight. If the
+ * ILI9342u display hardware feature is enabled, it sets the 
+ * brightness to ~55% brightness. The vibration motor is always
+ * initialized in the off state.
  * 
  * @param[in] ldo2_volt low-dropout voltage of the display.
  * @param[in] ldo3_volt low-dropout voltage of the vibration
@@ -303,7 +310,9 @@ float Core2ForAWS_PMU_GetBatCurrent();
  * attempting to write to the display. It initializes
  * the ILI9342C on the SPI bus and the LVGL driver.
  * 
- * @note Creates a FreeRTOS task with the task name `gui`. 
+ * @note Creates a FreeRTOS task with the task name `gui`.
+ * @note The Core2ForAWS_Init() calls this function
+ * when the hardware feature is enabled.
  */
 /* @[declare_core2foraws_display_init] */
 void Core2ForAWS_Display_Init();
@@ -360,6 +369,9 @@ void Core2ForAWS_Motor_SetStrength(uint8_t strength);
  * 
  * You must use this to initialize the LED bars 
  * before attempting to use either of the LED bars.
+ * 
+ * @note The Core2ForAWS_Init() calls this function
+ * when the hardware feature is enabled.
  */
 /* @[declare_core2foraws_sk6812_init] */
 void Core2ForAWS_Sk6812_Init();

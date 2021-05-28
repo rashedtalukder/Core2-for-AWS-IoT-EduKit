@@ -16,7 +16,9 @@
  * @brief Initializes the ATECC608 Trust&GO on the I2C bus.
  * 
  * @note Must initialize the ATECC608 before performing 
- * any operations on the device.
+ * any operations on the secure element.
+ * @note The Core2ForAWS_Init() calls this function
+ * when the hardware feature is enabled.
  * 
  * @return Status of initialization.
  * 0 is success. View the list of possible return status codes [here](https://github.com/espressif/esp-cryptoauthlib/blob/603225f3a4d0607d4e3c5483dc251639e956f9d3/cryptoauthlib/lib/atca_status.h).

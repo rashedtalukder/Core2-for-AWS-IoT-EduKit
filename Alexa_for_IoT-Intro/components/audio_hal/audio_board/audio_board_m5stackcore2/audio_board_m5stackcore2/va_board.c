@@ -31,11 +31,8 @@
 #include "driver/gpio.h"
 #include "driver/adc.h"
 #include "tone.h"
-
 #include "core2forAWS.h"
-
 #include "alexa_logo.c"
-
 #include "va_dsp.h"
 
 #define VA_TAG "AUDIO_BOARD"
@@ -77,23 +74,25 @@ int but_cb_reg_handlr(int ui_but_evt)
 
 esp_err_t va_board_button_init()
 {
-	//Map Buttons to Alexa
+	// Map Buttons to Alexa
     va_touch_button_init(but_cb_reg_handlr);
 
-    xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
-
     // Add touch button labels
-    lv_obj_t *ptt_label = lv_label_create(lv_scr_act(), NULL);
+    lv_obj_t * ptt_label = lv_label_create(lv_scr_act(), NULL);
     lv_label_set_text(ptt_label, "Push to Talk");
     lv_obj_align(ptt_label,NULL,LV_ALIGN_IN_BOTTOM_LEFT, 4, -4);
 
-    lv_obj_t *mute_label = lv_label_create(lv_scr_act(), NULL);
+    lv_obj_t * mute_label = lv_label_create(lv_scr_act(), NULL);
     lv_label_set_text(mute_label, "Mute");
     lv_obj_align(mute_label,NULL,LV_ALIGN_IN_BOTTOM_MID, 0, -4);
-
-    xSemaphoreGive(xGuiSemaphore);
     
     return ESP_OK;
+}
+
+static void brightness_slider_event_cb(lv_obj_t * slider, lv_event_t event) {
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        Core2ForAWS_Display_SetBrightness(lv_slider_get_value(slider));
+    }
 }
 
 void va_led_set_pwm(const uint32_t *led_value)
@@ -113,10 +112,6 @@ static esp_err_t va_board_led_init()
     //Initialize Alexa specific LED module layer
     va_led_init((led_pattern_config_t *)ab_led_conf);
     ESP_LOGI(VA_TAG, "M5Stack Core2 for AWS IoT EduKit LED driver initialized.");
-
-    // Turn on green LED as status indicator
-    Core2ForAWS_LED_Enable(1);
-
     return ESP_OK;
 }
 
@@ -126,9 +121,23 @@ void display_function()
 
     lv_obj_t *alexa_logo_mark = lv_img_create(lv_scr_act(), NULL);
     lv_img_set_src(alexa_logo_mark, &alexa_logo);
-    lv_obj_align(alexa_logo_mark, NULL, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_align(alexa_logo_mark, NULL, LV_ALIGN_IN_TOP_MID, 0, 30);
+
+    lv_obj_t * brightness_label = lv_label_create(lv_scr_act(), NULL);
+    lv_label_set_text(brightness_label, "Screen brightness");
+    lv_obj_align(brightness_label, NULL, LV_ALIGN_CENTER, 0, 10);
+
+    lv_obj_t * brightness_slider = lv_slider_create(lv_scr_act(), NULL);
+    lv_obj_set_width(brightness_slider, 136);
+    lv_obj_align(brightness_slider, brightness_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+
+    lv_obj_set_event_cb(brightness_slider, brightness_slider_event_cb);
+    lv_slider_set_value(brightness_slider, 85, LV_ANIM_OFF);
+    lv_slider_set_range(brightness_slider, 30, 100);
 
     xSemaphoreGive(xGuiSemaphore);
+
+    Core2ForAWS_LED_Enable(1);
 }
 
 int va_board_init()
@@ -162,12 +171,11 @@ int va_board_init()
     static media_hal_config_t media_hal_conf = MEDIA_HAL_DEFAULT();
     media_hal_t* mhal_handle = media_hal_init(&media_hal_conf);
     
-    //Initialize all M5Stack specific device drivers   
     Core2ForAWS_Init();
-    Core2ForAWS_Display_SetBrightness(80);
+    Core2ForAWS_Display_SetBrightness(85);
     
     va_board_led_init();
-
+    
     display_function();
 
     //disable Alexa tones (Start of Response / End of Response) for this half duplex board

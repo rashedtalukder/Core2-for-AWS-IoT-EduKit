@@ -24,6 +24,9 @@ typedef struct _rtc_data_t {
 
 /**
  * @brief Initializes the BM8563 real-time clock over i2c.
+ * 
+ * @note The Core2ForAWS_Init() calls this function
+ * when the hardware feature is enabled.
  */
 /* @[declare_bm8563_init] */
 void BM8563_Init();

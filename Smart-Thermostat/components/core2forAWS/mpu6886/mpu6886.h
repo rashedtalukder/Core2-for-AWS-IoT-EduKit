@@ -65,6 +65,9 @@ typedef enum {
 
 /**
  * @brief Initializes the MPU6886 over I2C.
+ * 
+ * @note The Core2ForAWS_Init() calls this function
+ * when the hardware feature is enabled.
  *
  * @return 0 if successful, -1 otherwise.
  */

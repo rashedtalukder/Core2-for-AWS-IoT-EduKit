@@ -83,8 +83,6 @@ void app_main(void)
     esp_log_level_set("gpio", ESP_LOG_NONE);
     esp_log_level_set("ILI9341", ESP_LOG_NONE);
 
-    spi_mutex = xSemaphoreCreateMutex();
-
     Core2ForAWS_Init();
     Core2ForAWS_Display_SetBrightness(80); // Last since the display first needs time to finish initializing.
     

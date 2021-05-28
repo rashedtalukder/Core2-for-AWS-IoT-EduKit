@@ -42,6 +42,9 @@ typedef struct _Button_t  {
 
 /**
  * @brief Initializes the virtual buttons using the FT6336U touch controller.
+ * 
+ * @note The Core2ForAWS_Init() calls this function
+ * when the hardware feature is enabled.
  */
 /* @[declare_button_init] */
 void Button_Init();

@@ -217,6 +217,7 @@ void sk6812_solid_task(void* pvParameters){
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     };
+    
     vTaskDelete(NULL);
 }
 
