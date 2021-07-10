@@ -5,6 +5,8 @@
 **/build
 **/sdkconfig
 **/sdkconfig.old
+**/sdkconfig.core2foraws
+**/sdkconfig.core2foraws.old
 
 **/__pycache__
 *.py[cod]
