@@ -39,7 +39,6 @@
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "driver/sdmmc_host.h"
-#include "atca_basic.h"
 
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -59,14 +58,6 @@ static const char *TAG = "subpub";
 */
 #define EXAMPLE_WIFI_SSID CONFIG_WIFI_SSID
 #define EXAMPLE_WIFI_PASS CONFIG_WIFI_PASSWORD
-
-/*  This example has prefixes for MQTT topic subscriptions
-    and publication. You can customize this if you want,
-    but you must modify your Thing security policy to allow
-    your new topic.
-*/
-#define SUBSCRIBE_TOPIC_PREFIX "topicfilter/"
-#define PUBLISH_TOPIC_PREFIX "topic/"
 
 /* FreeRTOS event group to signal when we are connected & ready to make a request */
 static EventGroupHandle_t wifi_event_group;
@@ -117,7 +108,6 @@ char HostAddress[255] = AWS_IOT_MQTT_HOST;
  */
 uint32_t port = AWS_IOT_MQTT_PORT;
 
-extern ATCAIfaceCfg cfg_ateccx08a_i2c_default;
 
 static esp_err_t event_handler(void *ctx, system_event_t *event)
 {
@@ -198,11 +188,6 @@ void aws_iot_task(void *param) {
     mqttInitParams.pDevicePrivateKeyLocation = DEVICE_PRIVATE_KEY_PATH;
 #endif
 
-    /* For secure element. */
-    mqttInitParams.pDeviceCertLocation = "#";
-    mqttInitParams.pDevicePrivateKeyLocation = "#0";
-    
-
     mqttInitParams.mqttCommandTimeout_ms = 20000;
     mqttInitParams.tlsHandshakeTimeout_ms = 5000;
     mqttInitParams.isSSLHostnameVerify = true;
@@ -240,8 +225,7 @@ void aws_iot_task(void *param) {
     connectParams.MQTTVersion = MQTT_3_1_1;
     /* Client ID is set in the menuconfig of the example */
     connectParams.pClientID = CONFIG_AWS_EXAMPLE_CLIENT_ID;
-    const uint16_t CONFIG_AWS_CLIENT_ID_LEN = (uint16_t) strlen(CONFIG_AWS_EXAMPLE_CLIENT_ID);
-    connectParams.clientIDLen = CONFIG_AWS_CLIENT_ID_LEN;
+    connectParams.clientIDLen = (uint16_t) strlen(CONFIG_AWS_EXAMPLE_CLIENT_ID);
     connectParams.isWillMsgPresent = false;
 
     ESP_LOGI(TAG, "Connecting to AWS...");
@@ -264,12 +248,11 @@ void aws_iot_task(void *param) {
         abort();
     }
 
-    const int SUBSCRIBE_TOPIC_PREFIX_LEN = strlen(SUBSCRIBE_TOPIC_PREFIX);
-    char * SUBSCRIBE_TOPIC = malloc(CONFIG_AWS_CLIENT_ID_LEN + SUBSCRIBE_TOPIC_PREFIX_LEN +1);
-    const int SUBSCRIBE_TOPIC_LEN = sprintf(SUBSCRIBE_TOPIC, "%s%s", SUBSCRIBE_TOPIC_PREFIX, CONFIG_AWS_EXAMPLE_CLIENT_ID);
-    
+    const char *TOPIC = "test_topic/esp32";
+    const int TOPIC_LEN = strlen(TOPIC);
+
     ESP_LOGI(TAG, "Subscribing...");
-    rc = aws_iot_mqtt_subscribe(&client, SUBSCRIBE_TOPIC, SUBSCRIBE_TOPIC_LEN, QOS0, iot_subscribe_callback_handler, NULL);
+    rc = aws_iot_mqtt_subscribe(&client, TOPIC, TOPIC_LEN, QOS0, iot_subscribe_callback_handler, NULL);
     if(SUCCESS != rc) {
         ESP_LOGE(TAG, "Error subscribing : %d ", rc);
         abort();
@@ -285,10 +268,6 @@ void aws_iot_task(void *param) {
     paramsQOS1.payload = (void *) cPayload;
     paramsQOS1.isRetained = 0;
 
-    const int PUBLISH_TOPIC_PREFIX_LEN = strlen(PUBLISH_TOPIC_PREFIX);
-    char * PUBLISH_TOPIC = malloc(CONFIG_AWS_CLIENT_ID_LEN + PUBLISH_TOPIC_PREFIX_LEN + 1);
-    const int PUBLISH_TOPIC_LEN = sprintf(PUBLISH_TOPIC, "%s%s", PUBLISH_TOPIC_PREFIX, CONFIG_AWS_EXAMPLE_CLIENT_ID);
-
     while((NETWORK_ATTEMPTING_RECONNECT == rc || NETWORK_RECONNECTED == rc || SUCCESS == rc)) {
 
         //Max time the yield function will wait for read messages
@@ -302,11 +281,11 @@ void aws_iot_task(void *param) {
         vTaskDelay(1000 / portTICK_RATE_MS);
         sprintf(cPayload, "%s : %d ", "hello from ESP32 (QOS0)", i++);
         paramsQOS0.payloadLen = strlen(cPayload);
-        rc = aws_iot_mqtt_publish(&client, PUBLISH_TOPIC, PUBLISH_TOPIC_LEN, &paramsQOS0);
+        rc = aws_iot_mqtt_publish(&client, TOPIC, TOPIC_LEN, &paramsQOS0);
 
         sprintf(cPayload, "%s : %d ", "hello from ESP32 (QOS1)", i++);
         paramsQOS1.payloadLen = strlen(cPayload);
-        rc = aws_iot_mqtt_publish(&client, PUBLISH_TOPIC, PUBLISH_TOPIC_LEN, &paramsQOS1);
+        rc = aws_iot_mqtt_publish(&client, TOPIC, TOPIC_LEN, &paramsQOS1);
         if (rc == MQTT_REQUEST_TIMEOUT_ERROR) {
             ESP_LOGW(TAG, "QOS1 publish ack not received.");
             rc = SUCCESS;
@@ -349,6 +328,5 @@ void app_main()
     ESP_ERROR_CHECK( err );
 
     initialise_wifi();
-    atcab_init(&cfg_ateccx08a_i2c_default);
     xTaskCreatePinnedToCore(&aws_iot_task, "aws_iot_task", 9216, NULL, 5, NULL, 1);
 }
