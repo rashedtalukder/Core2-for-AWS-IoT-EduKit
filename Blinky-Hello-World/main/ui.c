@@ -41,7 +41,7 @@
 static lv_obj_t *active_screen;
 static lv_obj_t *out_txtarea;
 static lv_obj_t *wifi_label;
-static lv_obj_t *aws_img;
+static lv_obj_t *aws_img_obj;
 
 static char *TAG = "UI";
 
@@ -106,16 +106,16 @@ void ui_aws_label_update(bool state){
 void ui_init() {
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
     active_screen = lv_scr_act();
-    wifi_label = lv_label_create(screen, NULL);
+    wifi_label = lv_label_create(active_screen, NULL);
     lv_obj_align(wifi_label,NULL,LV_ALIGN_IN_TOP_RIGHT, 0, 6);
     lv_label_set_text(wifi_label, LV_SYMBOL_WIFI);
     lv_label_set_recolor(wifi_label, true);
     
-    lv_obj_t* aws_img_obj = lv_img_create(opener_scr, NULL);
+    lv_obj_t* aws_img_obj = lv_img_create(active_screen, NULL);
     lv_obj_align(aws_img_obj, wifi_label, LV_ALIGN_CENTER, 0, -30); 
     ui_aws_label_update(false);
 
-    out_txtarea = lv_textarea_create(screen, NULL);
+    out_txtarea = lv_textarea_create(active_screen, NULL);
     lv_obj_set_size(out_txtarea, 300, 180);
     lv_obj_align(out_txtarea, NULL, LV_ALIGN_IN_BOTTOM_MID, 0, -12);
     lv_textarea_set_max_length(out_txtarea, MAX_TEXTAREA_LENGTH);
