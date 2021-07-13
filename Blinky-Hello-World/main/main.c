@@ -89,6 +89,7 @@ void iot_subscribe_callback_handler(AWS_IoT_Client *pClient, char *topicName, ui
 void disconnect_callback_handler(AWS_IoT_Client *pClient, void *data) {
     ESP_LOGW(TAG, "MQTT Disconnect");
     ui_textarea_add("Disconnected from AWS IoT Core...", NULL, 0);
+    ui_aws_label_update(false);
     IoT_Error_t rc = FAILURE;
 
     if(pClient == NULL) {
@@ -207,6 +208,7 @@ void aws_iot_task(void *param) {
         }
     } while(SUCCESS != rc);
     ui_textarea_add("Successfully connected!\n", NULL, 0);
+    ui_aws_label_update(true);
     ESP_LOGI(TAG, "Successfully connected to AWS IoT Core!");
     /*
      * Enable Auto Reconnect functionality. Minimum and Maximum time for exponential backoff for retries.
