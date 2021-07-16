@@ -1,7 +1,7 @@
 /*
  * AWS IoT EduKit - Core2 for AWS IoT EduKit
- * Cloud Connected Blinky v1.3.0
- * ui.c
+ * Cloud Connected Blinky v1.3.1
+ * .c
  * 
  * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  *
@@ -32,7 +32,6 @@
 #include "freertos/semphr.h"
 
 #include "esp_log.h"
-
 #include "core2forAWS.h"
 #include "ui.h"
 
@@ -41,7 +40,6 @@
 static lv_obj_t *active_screen;
 static lv_obj_t *out_txtarea;
 static lv_obj_t *wifi_label;
-static lv_obj_t *aws_img_obj;
 
 static char *TAG = "UI";
 
@@ -91,18 +89,6 @@ void ui_wifi_label_update(bool state){
     xSemaphoreGive(xGuiSemaphore);
 }
 
-void ui_aws_label_update(bool state){
-    xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
-    
-    if (state == false) {
-        lv_img_set_src(aws_img_obj, &aws_blk_logo);
-    } 
-    else{
-        lv_img_set_src(aws_img_obj, &aws_color_logo); 
-    }
-    xSemaphoreGive(xGuiSemaphore);
-}
-
 void ui_init() {
     xSemaphoreTake(xGuiSemaphore, portMAX_DELAY);
     active_screen = lv_scr_act();
@@ -110,10 +96,6 @@ void ui_init() {
     lv_obj_align(wifi_label,NULL,LV_ALIGN_IN_TOP_RIGHT, 0, 6);
     lv_label_set_text(wifi_label, LV_SYMBOL_WIFI);
     lv_label_set_recolor(wifi_label, true);
-    
-    lv_obj_t* aws_img_obj = lv_img_create(active_screen, NULL);
-    lv_obj_align(aws_img_obj, wifi_label, LV_ALIGN_CENTER, 0, -30); 
-    ui_aws_label_update(false);
 
     out_txtarea = lv_textarea_create(active_screen, NULL);
     lv_obj_set_size(out_txtarea, 300, 180);

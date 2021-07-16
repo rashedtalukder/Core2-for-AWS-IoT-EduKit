@@ -1,6 +1,6 @@
 /*
  * AWS IoT EduKit - Core2 for AWS IoT EduKit
- * Cloud Connected Blinky v1.3.0
+ * Cloud Connected Blinky v1.3.1
  * ui.h
  * 
  * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
@@ -27,5 +27,4 @@
 
 void ui_textarea_add(char *txt, char *param, size_t paramLen);
 void ui_wifi_label_update(bool state);
-void ui_aws_label_update(bool state);
 void ui_init();
