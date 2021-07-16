@@ -6,10 +6,10 @@ Each of the folders in this repository contains a separate project as described 
 For Arduino, UIFlow, or MicroPython content and code, please view the official [M5Stack Docs](https://docs.m5stack.com/#/).
 
 ## Included Projects
-### Core2 for AWS IoT Features Demo
+### Core2 for AWS IoT EduKit Hardware Features Demo
 This project is a demo of the hardware features available on the M5Stack Core2 for AWS IoT EduKit reference hardware. It uses at least one available API of each hardware feature in the board support package (BSP). The BSP drivers are located in the **/components/core2forAWS/** directory. There is also a ported version of Espressif's ESP-CRYPTOAUTHLIB to be used with the BSP for the Microchip ATECC608 Trust&GO secure element to function.
 
-## Core2 for AWS  IoT EduKit Factory Firmware
+## Core2 for AWS IoT EduKit Factory Firmware
 This project is the factory firmware that comes loaded with the device. It contains basic functionality and can be used to restore the device to factory state.
 
 ### Getting Started
@@ -25,4 +25,5 @@ This project is used in the [AWS IoT EduKit — Smart Thermostat](https://edukit
 This project is used in the [AWS IoT EduKit — Intro to Alexa for IoT](https://edukit.workshop.aws/en/intro-to-alexa-for-iot.html) tutorial. It contains several Alexa for AWS IoT (AIA) features including english "Alexa" wake word detection, smart home device, audio player and others. Please follow the tutorial for usage. This is preview software based on the [ESP-VA-SDK](https://github.com/espressif/esp-va-sdk), and is not a stable port.
 
 ## Support
-For issues with the AWS IoT EduKit content or this repo, please [submit an issue](https://github.com/m5stack/Core2-for-AWS-IoT-EduKit/issues) to this repository.
+To get support with AWS IoT EduKit, post your question in the [content repo's discussions](https://github.com/aws-samples/aws-iot-edukit-tutorials/discussions).
+For issues with the AWS IoT EduKit this repo, please [submit an issue](https://github.com/m5stack/Core2-for-AWS-IoT-EduKit/issues) to this repository.
