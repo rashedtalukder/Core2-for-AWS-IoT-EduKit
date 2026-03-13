@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -30,7 +30,6 @@
 #include <esp_log.h>
 
 #include "mpu6886.h"
-#include "i2c_manager.h"
 #include "core2foraws_common.h"
 #include "core2foraws_motion.h"
 
@@ -39,8 +38,7 @@ static const char *_TAG = "CORE2FORAWS_MOTION";
 esp_err_t core2foraws_motion_init( void )
 {
     ESP_LOGI( _TAG, "\tInitializing" );
-    i2c_port_t port = COMMON_I2C_INTERNAL;
-    return mpu6886_init( &port );
+    return mpu6886_init( COMMON_I2C_INTERNAL );
 }
 
 esp_err_t core2foraws_motion_temperature_get( float *temperature )
@@ -55,5 +53,5 @@ esp_err_t core2foraws_motion_accel_get( float *x, float *y, float *z )
 
 esp_err_t core2foraws_motion_gyro_get( float *roll, float *pitch, float *yaw )
 {
-    return mpu6886_gyro_data_get( roll, yaw, pitch );
+    return mpu6886_gyro_data_get( roll, pitch, yaw );
 }

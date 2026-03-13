@@ -3,24 +3,25 @@
 #
 cmake_minimum_required( VERSION 3.16.0 )
 
-MACRO( GET_HEADER_DIRS return_list start_dir )
-    FILE( GLOB_RECURSE new_list "${start_dir}/*.h" )
-    SET( dir_list "" )
-    FOREACH( file_path ${new_list} )
-    GET_FILENAME_COMPONENT( dir_path ${file_path} PATH )
-    SET( dir_list ${dir_list} ${dir_path} )
-    ENDFOREACH()
-    LIST( REMOVE_DUPLICATES dir_list )
-    SET( ${return_list} ${dir_list} )
-ENDMACRO()
-
 set( ESP_IDF_PATH                       ${idf_path} )
 set( CORE2FORAWS_SRCS                   "${COMPONENT_DIR}/core2foraws.c" )
 set( CORE2FORAWS_INCLUDE_DIRS           "${COMPONENT_DIR}/include" )
-set( CORE2FORAWS_REQUIRES               "esp_adc_cal"
+
+# esp_adc_cal was removed in ESP-IDF v5.x, replaced by esp_adc
+if( IDF_VERSION_MAJOR GREATER_EQUAL 5 )
+    set( ADC_COMPONENT "esp_adc" )
+else()
+    set( ADC_COMPONENT "esp_adc_cal" )
+endif()
+
+set( CORE2FORAWS_REQUIRES               ${ADC_COMPONENT}
                                         "mbedtls"
                                         "freertos"
                                         "driver"
+                                        "esp_driver_i2c"
+                                        "esp_driver_i2s"
+                                        "esp_driver_rmt"
+                                        "esp_timer"
                                         "esp-cryptoauthlib"
                                         "fatfs"
                                         )
@@ -33,22 +34,13 @@ set( CORE2FORAWS_LIB                    "${COMPONENT_DIR}/lib" )
 
 
 if( CONFIG_SOFTWARE_BSP_SUPPORT )
-set( I2C_MANAGER_SRCS                   "${CORE2FORAWS_LIB}/common/lib/i2c_manager/i2c_manager/i2c_manager.c"
-                                        "${CORE2FORAWS_LIB}/common/lib/i2c_manager/i2cdev/i2cdev.c"
-                                        )
-    set( I2C_MANAGER_INCLUDE_DIRS           "${CORE2FORAWS_LIB}/common/lib/i2c_manager/i2c_manager"
-                                            "${CORE2FORAWS_LIB}/common/lib/i2c_manager/i2cdev" 
-                                            )
-    list( APPEND CORE2FORAWS_SRCS           ${I2C_MANAGER_SRCS} )
-    list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${I2C_MANAGER_INCLUDE_DIRS})
-
     set( CORE2FORAWS_BSP_SRCS                   "${CORE2FORAWS_LIB}/common/core2foraws_common.c"
+                                                "${CORE2FORAWS_LIB}/common/core2foraws_i2c.c"
                                                 "${CORE2FORAWS_LIB}/power/core2foraws_power.c"
-                                                "${CORE2FORAWS_LIB}/power/lib/axp192/axp192.c"
+                                                "${CORE2FORAWS_LIB}/power/axp192.c"
                                                 )
     set( CORE2FORAWS_BSP_INCLUDE_DIRS           "${CORE2FORAWS_LIB}/common/include" 
                                                 "${CORE2FORAWS_LIB}/power/include"
-                                                "${CORE2FORAWS_LIB}/power/lib/axp192"
                                                 )
     list( APPEND CORE2FORAWS_SRCS               ${CORE2FORAWS_BSP_SRCS} )
     list( APPEND CORE2FORAWS_INCLUDE_DIRS       ${CORE2FORAWS_BSP_INCLUDE_DIRS} )
@@ -74,7 +66,9 @@ endif()
 
 
 if( CONFIG_SOFTWARE_CRYPTO_SUPPORT )
-    set( CORE2FORAWS_CRYPTO_SRCS            "${CORE2FORAWS_LIB}/crypto/core2foraws_crypto.c" )
+    set( CORE2FORAWS_CRYPTO_SRCS            "${CORE2FORAWS_LIB}/crypto/core2foraws_crypto.c"
+                                            "${CORE2FORAWS_LIB}/crypto/core2foraws_crypto_hal.c"
+                                            )
     set( CORE2FORAWS_CRYPTO_INCLUDE_DIRS    "${CORE2FORAWS_LIB}/crypto/include" )
 
     list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_CRYPTO_SRCS} )
@@ -83,32 +77,13 @@ endif()
 
 
 if( CONFIG_SOFTWARE_DISPLAY_SUPPORT )
-    file( GLOB_RECURSE LVGL_SRCS            "${CORE2FORAWS_LIB}/display/lib/lvgl/src/*.c" )
-    GET_HEADER_DIRS( LVGL_INCLUDE_DIRS      "${CORE2FORAWS_LIB}/display/lib/lvgl/src" )
-    GET_HEADER_DIRS( LVGL_ESP_INCLUDE_DIRS  "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers" )
+    set( CORE2FORAWS_DISPLAY_SRCS           "${CORE2FORAWS_LIB}/display/core2foraws_display.c" )
+    set( CORE2FORAWS_DISPLAY_INCLUDE_DIRS   "${CORE2FORAWS_LIB}/display/include" )
 
-    set( CORE2FORAWS_DISPLAY_SRCS           "${CORE2FORAWS_LIB}/display/core2foraws_display.c" 
-                                            ${LVGL_SRCS}
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lvgl_helpers.c"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lvgl_i2c/i2c_manager.c"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lvgl_tft/disp_driver.c"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lv_port/esp_lcd_backlight.c"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lvgl_tft/ili9341.c"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lv_port/disp_spi.c"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lvgl_touch/touch_driver.c"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lvgl_touch/ft6x36.c"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers/lv_port/lv_port_display_espressif.c"
-                                            )
-    set( CORE2FORAWS_DISPLAY_INCLUDE_DIRS   "${CORE2FORAWS_LIB}/display/include" 
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl"
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl/src"
-                                            ${LVGL_INCLUDE_DIRS}
-                                            "${CORE2FORAWS_LIB}/display/lib/lvgl_esp32_drivers"
-                                            ${LVGL_ESP_INCLUDE_DIRS}
-                                            )
-    
     list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_DISPLAY_SRCS} )
     list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${CORE2FORAWS_DISPLAY_INCLUDE_DIRS} )
+    list( APPEND CORE2FORAWS_REQUIRES       "esp_lcd"
+                                              "esp_driver_spi" )
 endif()
 
 
@@ -123,11 +98,9 @@ endif()
 
 if( CONFIG_SOFTWARE_MOTION_SUPPORT )
     set( CORE2FORAWS_MOTION_SRCS                "${CORE2FORAWS_LIB}/motion/core2foraws_motion.c" 
-                                                "${CORE2FORAWS_LIB}/motion/lib/MPU6886-idf/mpu6886.c"
+                                                "${CORE2FORAWS_LIB}/motion/mpu6886.c"
                                                 )
     set( CORE2FORAWS_MOTION_INCLUDE_DIRS        "${CORE2FORAWS_LIB}/motion/include"
-                                                "${CORE2FORAWS_LIB}/motion/lib/MPU6886-idf"
-                                                "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/esp_idf_lib_helpers"
                                                 )
     list( APPEND CORE2FORAWS_SRCS               ${CORE2FORAWS_MOTION_SRCS} )
     list( APPEND CORE2FORAWS_INCLUDE_DIRS       ${CORE2FORAWS_MOTION_INCLUDE_DIRS} )
@@ -135,18 +108,8 @@ endif()
 
 
 if( CONFIG_SOFTWARE_RGB_LED_SUPPORT )
-    file( GLOB CORE2FORAWS_RGB_LED_SRCS     "${CORE2FORAWS_LIB}/rgb_led/*.c"
-                                            "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/lib8tion/*.c"
-                                            "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/color/*.c"
-                                            "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/led_strip/*.c"
-                                            )
-    set( CORE2FORAWS_RGB_LED_INCLUDE_DIRS   "${CORE2FORAWS_LIB}/rgb_led/include"
-                                            "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/esp_idf_lib_helpers" 
-                                            "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/lib8tion"
-                                            "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/lib8tion/lib8tion"
-                                            "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/color"
-                                            "${CORE2FORAWS_LIB}/common/lib/esp-idf-lib/components/led_strip"
-                                            )
+    file( GLOB CORE2FORAWS_RGB_LED_SRCS     "${CORE2FORAWS_LIB}/rgb_led/*.c" )
+    set( CORE2FORAWS_RGB_LED_INCLUDE_DIRS   "${CORE2FORAWS_LIB}/rgb_led/include" )
 
     list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_RGB_LED_SRCS} )
     list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${CORE2FORAWS_RGB_LED_INCLUDE_DIRS} )
@@ -170,25 +133,24 @@ if( CONFIG_SOFTWARE_SDCARD_SUPPORT )
 endif()
 
 if( CONFIG_SOFTWARE_WIFI_SUPPORT )
-    file( GLOB_RECURSE QRCODE_SRCS          "${ESP_IDF_PATH}/examples/common_components/qrcode/*.c" )
-    set( QRCODE_INCLUDE_DIRS                "${ESP_IDF_PATH}/examples/common_components/qrcode"
-                                            "${ESP_IDF_PATH}/examples/common_components/qrcode/include"
-                                            )
     set( CORE2FORAWS_WIFI_SRCS              "${CORE2FORAWS_LIB}/wifi/core2foraws_wifi.c" )
     set( CORE2FORAWS_WIFI_INCLUDE_DIRS      "${CORE2FORAWS_LIB}/wifi/include" )
 
-    list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_WIFI_SRCS}
-                                            ${QRCODE_SRCS} )
-    list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${CORE2FORAWS_WIFI_INCLUDE_DIRS}
-                                            ${QRCODE_INCLUDE_DIRS} )
-endif()
+    list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_WIFI_SRCS} )
+    list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${CORE2FORAWS_WIFI_INCLUDE_DIRS} )
 
-if( CONFIG_SOFTWARE_DISPLAY_SUPPORT AND CONFIG_SOFTWARE_WIFI_SUPPORT )
-    file( GLOB_RECURSE CORE2FORAWS_DISPLAY_WIFI_SRCS    "${CORE2FORAWS_LIB}/display/lib/lv_lib_qrcode/*.c" )
-    set( CORE2FORAWS_DISPLAY_WIFI_INCLUDE_DIRS          "${CORE2FORAWS_LIB}/display/lib/lv_lib_qrcode" )
-
-    list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_DISPLAY_WIFI_SRCS} )
-    list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${CORE2FORAWS_DISPLAY_WIFI_INCLUDE_DIRS} )
+    if( IDF_VERSION_MAJOR GREATER_EQUAL 5 )
+        # ESP-IDF v5+: qrcode is a managed component (espressif/qrcode)
+        list( APPEND CORE2FORAWS_PRIV_REQUIRES  "qrcode" )
+    else()
+        # ESP-IDF v4: qrcode ships in examples/common_components
+        file( GLOB_RECURSE QRCODE_SRCS          "${ESP_IDF_PATH}/examples/common_components/qrcode/*.c" )
+        set( QRCODE_INCLUDE_DIRS                "${ESP_IDF_PATH}/examples/common_components/qrcode"
+                                                "${ESP_IDF_PATH}/examples/common_components/qrcode/include"
+                                                )
+        list( APPEND CORE2FORAWS_SRCS           ${QRCODE_SRCS} )
+        list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${QRCODE_INCLUDE_DIRS} )
+    endif()
 endif()
 
 idf_component_register( SRCS                ${CORE2FORAWS_SRCS}
@@ -199,93 +161,22 @@ idf_component_register( SRCS                ${CORE2FORAWS_SRCS}
                         REQUIRES            ${CORE2FORAWS_REQUIRES}
                         )
 
-
-if( CONFIG_SOFTWARE_BSP_SUPPORT )
-    target_compile_definitions( ${COMPONENT_LIB} PUBLIC     "-DCONFIG_I2C_MANAGER_0_ENABLED=y"
-                                                            "-DCONFIG_I2C_MANAGER_0_SDA=21"
-                                                            "-DCONFIG_I2C_MANAGER_0_SCL=22"
-                                                            "-DCONFIG_I2C_MANAGER_0_FREQ_HZ=100000"
-                                                            "-DCONFIG_I2C_MANAGER_0_TIMEOUT=940"
-                                                            "-DCONFIG_I2C_MANAGER_0_LOCK_TIMEOUT=1000"
-                                                            "-DCONFIG_I2C_MANAGER_0_PULLUPS=y"
-                                                            )
-
-    target_compile_definitions( ${COMPONENT_LIB} PRIVATE    "-DCONFIG_AXP192_GPIO0_LDOIO0_VOLTAGE_BIT74=0x00"
-                                                            "-DCONFIG_AXP192_LDO23_VOLTAGE_BIT74=0x00"
-                                                            "-DCONFIG_AXP192_LDO23_VOLTAGE_BIT30=0x00"
-                                                            "-DCONFIG_AXP192_LDO23_VOLTAGE_BIT74_3V0=y"
-                                                            "-DCONFIG_AXP192_LDO23_VOLTAGE_BIT30_3V0=y"
-                                                            "-DCONFIG_AXP192_ADC_ENABLE_1_BIT7=0x00"
-                                                            "-DCONFIG_AXP192_ADC_ENABLE_1_BIT6=0x00"
-                                                            "-DCONFIG_AXP192_ADC_ENABLE_1_BIT5=0x00"
-                                                            "-DCONFIG_AXP192_ADC_ENABLE_1_BIT4=0x00"
-                                                            "-DCONFIG_AXP192_ADC_ENABLE_1_BIT3=0x00"
-                                                            "-DCONFIG_AXP192_ADC_ENABLE_1_BIT2=0x00"
-                                                            "-DCONFIG_AXP192_ADC_ENABLE_1_BIT1=0x00"
-                                                            "-DCONFIG_AXP192_ADC_ENABLE_1_BIT0=0x00"
-                                                            "-DCONFIG_AXP192_CHARGE_CONTROL_1_BIT7=0x00"
-                                                            "-DCONFIG_AXP192_CHARGE_CONTROL_1_BIT65=0x00"
-                                                            "-DCONFIG_AXP192_CHARGE_CONTROL_1_BIT30=0x00"
-                                                            "-DCONFIG_AXP192_CHARGE_CONTROL_1_BIT4=0x00"
-                                                            "-DCONFIG_AXP192_EXTEN_DCDC2_CONTROL_BIT2=0x00"
-                                                            "-DCONFIG_AXP192_EXTEN_DCDC2_CONTROL_BIT0=0x00"
-                                                            "-DCONFIG_AXP192_DCDC13_LDO23_CONTROL_BIT6=0x00"
-                                                            "-DCONFIG_AXP192_DCDC13_LDO23_CONTROL_BIT4=0x00"
-                                                            "-DCONFIG_AXP192_DCDC13_LDO23_CONTROL_BIT3=0x00"
-                                                            "-DCONFIG_AXP192_DCDC13_LDO23_CONTROL_BIT2=0x00"
-                                                            "-DCONFIG_AXP192_GPIO0_CONTROL_BIT20=0x07"
-                                                            "-DCONFIG_AXP192_DCDC13_LDO23_CONTROL_BIT1=0x00"
-                                                            "-DCONFIG_AXP192_DCDC13_LDO23_CONTROL_BIT0=0x00"
-                                                            )
+# Override esp-cryptoauthlib's default I2C HAL so the ATECC608 uses the BSP's
+# shared internal I2C bus instead of creating its own.
+if( CONFIG_SOFTWARE_CRYPTO_SUPPORT )
+    target_link_options( ${COMPONENT_LIB} PUBLIC
+        -Wl,--wrap=hal_i2c_init
+        -Wl,--wrap=hal_i2c_post_init
+        -Wl,--wrap=hal_i2c_send
+        -Wl,--wrap=hal_i2c_receive
+        -Wl,--wrap=hal_i2c_release
+        -Wl,--wrap=hal_i2c_change_baud
+        -Wl,--wrap=hal_i2c_control
+    )
 endif()
 
 
-if( CONFIG_SOFTWARE_EXPANSION_PORTS_SUPPORT )
-    target_compile_definitions( ${COMPONENT_LIB} PRIVATE    "-DCONFIG_I2C_MANAGER_1_ENABLED=y"
-                                                            "-DCONFIG_I2C_MANAGER_1_SDA=32"
-                                                            "-DCONFIG_I2C_MANAGER_1_SCL=33"
-                                                            )
-endif()
 
 
-if( CONFIG_SOFTWARE_RGB_LED_SUPPORT )
-    target_compile_definitions( ${COMPONENT_LIB} PRIVATE "-DCONFIG_LED_STRIP_FLUSH_TIMEOUT=1000" )
-    target_compile_definitions( ${COMPONENT_LIB} PRIVATE "-DCONFIG_LED_STRIP_PAUSE_LENGTH=50" )
-endif()
 
-if( CONFIG_SOFTWARE_DISPLAY_SUPPORT )
-    target_compile_definitions(${COMPONENT_LIB} PUBLIC  "-DCONFIG_LV_CONF_SKIP=y"
-                                                        "-DCONFIG_LV_HOR_RES_MAX=320"
-                                                        "-DCONFIG_LV_VER_RES_MAX=240"
-                                                        "-DCONFIG_LV_COLOR_DEPTH_16=y"
-                                                        "-DCONFIG_LV_COLOR_DEPTH=16"
-                                                        "-DCONFIG_LV_PREDEFINED_DISPLAY_M5CORE2=y"
-                                                        "-DCONFIG_LV_TFT_DISPLAY_CONTROLLER_ILI9341=y"
-                                                        "-DCONFIG_LV_TFT_DISPLAY_PROTOCOL_SPI=y"
-                                                        "-DCONFIG_LV_DISPLAY_ORIENTATION_PORTRAIT=y"
-                                                        "-DCONFIG_LV_DISPLAY_ORIENTATION=0"
-                                                        "-DCONFIG_LV_TFT_DISPLAY_SPI3_HOST=y"
-                                                        "-DCONFIG_LV_TFT_DISPLAY_SPI_TRANS_MODE_DIO=y"
-                                                        "-DCONFIG_LV_TFT_DISPLAY_SPI_HALF_DUPLEX=y"
-                                                        "-DCONFIG_LV_TFT_CUSTOM_SPI_CLK_DIVIDER=2"
-                                                        "-DCONFIG_LV_DISP_SPI_MOSI=23"
-                                                        "-DCONFIG_LV_DISPLAY_USE_SPI_MISO=y"
-                                                        "-DCONFIG_LV_DISP_SPI_MISO=38"
-                                                        "-DCONFIG_LV_DISP_SPI_INPUT_DELAY_NS=0"
-                                                        "-DCONFIG_LV_DISP_SPI_CLK=18"
-                                                        "-DCONFIG_LV_DISPLAY_USE_SPI_CS=y"
-                                                        "-DCONFIG_LV_DISP_SPI_CS=5"
-                                                        "-DCONFIG_LV_DISPLAY_USE_DC=y"
-                                                        "-DCONFIG_LV_DISP_PIN_DC=15"
-                                                        "-DCONFIG_LV_DISP_PIN_BUSY=35"
-                                                        "-DCONFIG_LV_DISP_BACKLIGHT_OFF=y"
-                                                        "-DCONFIG_LV_I2C=y"
-                                                        "-DCONFIG_LV_I2C_DISPLAY_PORT=0"
-                                                        "-DCONFIG_LV_TOUCH_CONTROLLER=2"
-                                                        "-DCONFIG_LV_TOUCH_CONTROLLER_FT6X06=y"
-                                                        "-DCONFIG_LV_I2C_TOUCH=y"
-                                                        "-DCONFIG_LV_I2C_TOUCH_PORT_0=y"
-                                                        "-DCONFIG_LV_I2C_TOUCH_PORT=0"
-                                                        "-DLV_LVGL_H_INCLUDE_SIMPLE"
-                                                        )
-endif()
+

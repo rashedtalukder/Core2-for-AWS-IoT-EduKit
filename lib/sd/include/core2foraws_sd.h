@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -78,9 +78,10 @@ extern "C" {
  *      esp_err_t err = core2foraws_sd_mount();
  *      if( err == ESP_OK )
  *      {
- *          ESP_LOGI( TAG, "\tMounted SD card" ); *  
+ *          ESP_LOGI( TAG, "\tMounted SD card" );
+ *  
  *          size_t written_length = 0;
- *          err = core2foraws_sd_write( file_path, "Hello from AWS IoT Kit!", &length );
+ *          err = core2foraws_sd_write( file_path, "Hello from AWS IoT Kit!", &written_length );
  *          ESP_LOGI( TAG, "\tSD write %s, wrote %d bytes", err == ESP_OK ? "success" : "fail", written_length );
  *  
  *          char str[64];
@@ -135,7 +136,7 @@ esp_err_t core2foraws_sd_mount( void );
  *          ESP_LOGI( TAG, "\tMounted SD card" );
  *  
  *          size_t written_length = 0;
- *          err = core2foraws_sd_write( file_path, "Hello from AWS IoT Kit!", &length );
+ *          err = core2foraws_sd_write( file_path, "Hello from AWS IoT Kit!", &written_length );
  *          ESP_LOGI( TAG, "\tSD write %s, wrote %d bytes", err == ESP_OK ? "success" : "fail", written_length );
  *  
  *          char str[64];

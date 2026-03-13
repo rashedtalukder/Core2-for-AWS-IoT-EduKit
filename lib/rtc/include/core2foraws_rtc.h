@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -39,23 +39,23 @@ extern "C"
 #include <stdint.h>
 #include <time.h>
 
-// BM8563 constants needed for the header definitions
-#define BM8563_ALARM_NONE    0x80
-#define BM8563_ALARM_DISABLE 0xFF
+// BM8563 alarm register constants
+#define BM8563_ALARM_NONE 0x80
 
 /**
- * @brief Used to not set alarm for individual time struct property.
+ * @brief Used to skip ("don't care") an alarm field when setting.
  */
 /* @[declare_core2foraws_rtc_rtc_alarm_none] */
 #define RTC_ALARM_NONE BM8563_ALARM_NONE
 /* @[declare_core2foraws_rtc_rtc_alarm_none] */
 
 /**
- * @brief Value if alarm is not set on individual time struct
- * property.
+ * @brief Returned by core2foraws_rtc_alarm_get() when an alarm field
+ * is not set. Also accepted by core2foraws_rtc_alarm_set() to
+ * disable a field.
  */
 /* @[declare_core2foraws_rtc_rtc_alarm_disable] */
-#define RTC_ALARM_DISABLE BM8563_ALARM_DISABLE
+#define RTC_ALARM_DISABLE 0xFF
   /* @[declare_core2foraws_rtc_rtc_alarm_disable] */
 
   /**
@@ -304,7 +304,7 @@ extern "C"
    *      {
    *          alarm_time.tm_hour = datetime.tm_hour + 1;
    *          alarm_time.tm_min = 0;
-   *          if ( alarm_time.tm_hour == 25 )
+   *          if ( alarm_time.tm_hour == 24 )
    *              alarm_time.tm_hour = 0;
    *      }
    *      else
@@ -315,10 +315,8 @@ extern "C"
    *      alarm_time.tm_mday = RTC_ALARM_NONE;
    *      alarm_time.tm_wday = RTC_ALARM_NONE;
    *
-   *      datetime.tm_min += 1;
-   *
    *      core2foraws_rtc_alarm_set( alarm_time );
-   *      alarm_time = { 0 };
+   *      memset( &alarm_time, 0, sizeof( alarm_time ) );
    *
    *      err = core2foraws_rtc_alarm_get( &alarm_time );
    *      if ( err == ESP_OK )
@@ -665,6 +663,70 @@ extern "C"
   /* @[declare_core2foraws_rtc_timer_set] */
   esp_err_t core2foraws_rtc_timer_set( uint32_t seconds );
   /* @[declare_core2foraws_rtc_timer_set] */
+
+  /**
+   * @brief Stops the running timer and disables the timer interrupt.
+   *
+   * **Example:**
+   *
+   * Cancel a running timer.
+   * @code{c}
+   *  #include "core2foraws.h"
+   *  #include <esp_log.h>
+   *
+   *  static const char *TAG = "RTC_DEMO";
+   *
+   *  void app_main(void) {
+   *      core2foraws_init();
+   *      core2foraws_rtc_timer_set(60);  // 60-second timer
+   *
+   *      // ... later, cancel the timer
+   *      esp_err_t ret = core2foraws_rtc_timer_stop();
+   *      if (ret == ESP_OK) {
+   *          ESP_LOGI(TAG, "Timer cancelled");
+   *      }
+   *  }
+   * @endcode
+   *
+   * @return
+   * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
+   *  - ESP_OK                : Success
+   *  - ESP_ERR_INVALID_STATE : RTC not initialized
+   */
+  /* @[declare_core2foraws_rtc_timer_stop] */
+  esp_err_t core2foraws_rtc_timer_stop( void );
+  /* @[declare_core2foraws_rtc_timer_stop] */
+
+  /**
+   * @brief Disables the alarm and clears the alarm interrupt.
+   *
+   * **Example:**
+   *
+   * Disable a previously set alarm.
+   * @code{c}
+   *  #include "core2foraws.h"
+   *  #include <esp_log.h>
+   *
+   *  static const char *TAG = "RTC_DEMO";
+   *
+   *  void app_main(void) {
+   *      core2foraws_init();
+   *
+   *      esp_err_t ret = core2foraws_rtc_alarm_disable();
+   *      if (ret == ESP_OK) {
+   *          ESP_LOGI(TAG, "Alarm disabled");
+   *      }
+   *  }
+   * @endcode
+   *
+   * @return
+   * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
+   *  - ESP_OK                : Success
+   *  - ESP_ERR_INVALID_STATE : RTC not initialized
+   */
+  /* @[declare_core2foraws_rtc_alarm_disable] */
+  esp_err_t core2foraws_rtc_alarm_disable( void );
+  /* @[declare_core2foraws_rtc_alarm_disable] */
 
 #ifdef __cplusplus
 }

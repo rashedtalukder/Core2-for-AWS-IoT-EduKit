@@ -1,0 +1,20 @@
+dependencies:
+  espressif/qrcode:
+    version: ">=0.1.0"
+    rules:
+      - if: "idf_version >=5.0"
+  lvgl/lvgl:
+    version: "^8"
+    public: true
+  espressif/esp_lvgl_port:
+    version: "^2"
+    public: true
+  espressif/esp_lcd_touch:
+    version: "^1"
+    public: true
+  espressif/esp_lcd_touch_ft5x06:
+    version: "^1"
+    public: true
+  espressif/esp_lcd_ili9341:
+    version: "^2"
+    public: true

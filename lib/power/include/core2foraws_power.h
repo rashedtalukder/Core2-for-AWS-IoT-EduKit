@@ -6,7 +6,7 @@
 
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -148,7 +148,7 @@ esp_err_t core2foraws_power_init( void );
  * @endcode
  *
  * @param[in] brightness The desired brightness of the display. 
- * Accepts a value from 0 to 100.
+ * Accepts a value from 0 to 100. A value of 0 turns the backlight off.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
  *  - ESP_ERR_INVALID_ARG	: Driver parameter error
@@ -506,6 +506,7 @@ esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts
  *
  * @param[in] rail The power rail to set the voltage of.
  * @param[out] millivolts The millivolts to set the rail to.
+ * The value must match the AXP192 step size for that rail.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
  *  - ESP_ERR_INVALID_ARG	: Driver parameter error

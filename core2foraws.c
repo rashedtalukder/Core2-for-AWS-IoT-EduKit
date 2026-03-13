@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -39,6 +39,14 @@ esp_err_t core2foraws_init( void )
   ESP_LOGI( _TAG, "\tInitializing" );
 
 #ifdef CONFIG_SOFTWARE_BSP_SUPPORT
+  /* Initialize the internal I2C bus before any peripheral that uses it */
+  err = core2foraws_i2c_init( CORE2FORAWS_I2C_INTERNAL );
+  if( err != ESP_OK )
+  {
+    ESP_LOGE( _TAG, "\tError initializing internal I2C bus. Error 0x%x", err );
+    return err;
+  }
+
   err = core2foraws_power_init();
   if( err != ESP_OK )
     ESP_LOGE( _TAG, "\tError initializing power. Error 0x%x", err );

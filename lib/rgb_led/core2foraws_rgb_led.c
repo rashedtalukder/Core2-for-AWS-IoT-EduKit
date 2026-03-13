@@ -1,7 +1,7 @@
 
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,107 +23,240 @@
 
 /**
  * @file core2foraws_rgb_led.c
- * @brief Core2 for AWS IoT Kit RGB LEDs hardware driver APIs
+ * @brief Standalone SK6812 RGB LED driver for Core2 for AWS IoT Kit.
+ *        Uses RMT peripheral directly — no external library dependencies.
  */
 
+#include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <driver/rmt_tx.h>
+#include <driver/rmt_encoder.h>
+#include <driver/gpio.h>
 #include <esp_log.h>
+#include <esp_rom_sys.h>
 
-#include "led_strip.h"
-#include "rgb.h"
 #include "core2foraws_common.h"
 #include "core2foraws_rgb_led.h"
 
 static const char *_TAG = "CORE2FORAWS_RGB_LED";
 
-#define RGB_LED_TYPE LED_STRIP_SK6812
-#define RGB_LED_GPIO_DATA_PIN GPIO_NUM_25
-#define RGB_LED_BRIGHTNESS_DEFAULT 255
+/* ── Hardware constants ─────────────────────────────────────────── */
+#define SK6812_GPIO             GPIO_NUM_25
+#define SK6812_BYTES_PER_LED    3          /* GRB, no white channel    */
+#define SK6812_BUF_SIZE         ( RGB_LED_NUMS * SK6812_BYTES_PER_LED )
+#define SK6812_FLUSH_TIMEOUT_MS 1000
+#define SK6812_RESET_US         50         /* latch / reset pause      */
 
-static led_strip_t _led_strip = 
+/* RMT resolution: 10 MHz, 1 tick = 100 ns */
+#define SK6812_RMT_RESOLUTION_HZ 10000000
+
+/* SK6812 bit timings in RMT ticks (1 tick = 100 ns) */
+#define SK6812_T0H_TICKS  3   /* 300 ns */
+#define SK6812_T0L_TICKS  9   /* 900 ns */
+#define SK6812_T1H_TICKS  6   /* 600 ns */
+#define SK6812_T1L_TICKS  6   /* 600 ns */
+
+/* ── Static state ───────────────────────────────────────────────── */
+static uint8_t  _led_buf[SK6812_BUF_SIZE]; /* GRB pixel buffer      */
+static uint8_t  _tx_buf[SK6812_BUF_SIZE];  /* brightness-scaled TX  */
+static uint8_t  _brightness = 255;         /* 0-255 driver scale    */
+static bool     _initialised = false;
+
+static rmt_channel_handle_t _rmt_channel = NULL;
+static rmt_encoder_handle_t _rmt_encoder = NULL;
+
+/* ── Brightness helper (video-safe scale, never dims to 0) ─────── */
+static inline uint8_t _scale8_video( uint8_t val, uint8_t scale )
 {
-    .type = RGB_LED_TYPE,
-    .length = RGB_LED_NUMS,
-    .gpio = RGB_LED_GPIO_DATA_PIN,
-    .buf = NULL,
-#ifdef LED_STRIP_BRIGHTNESS
-    .brightness = RGB_LED_BRIGHTNESS_DEFAULT,
-#endif
-};
+    return (uint8_t)( ( (int)val * (int)scale ) >> 8 )
+           + ( ( val && scale ) ? 1 : 0 );
+}
+
+/* ── Public API ─────────────────────────────────────────────────── */
 
 esp_err_t core2foraws_rgb_led_init( void )
 {
     ESP_LOGI( _TAG, "\tInitializing" );
-    esp_err_t err = ESP_OK;
 
-    led_strip_install();
+    if ( _initialised )
+    {
+        return ESP_OK;
+    }
 
-    err = led_strip_init(&_led_strip);
+    /* Zero the pixel buffer */
+    memset( _led_buf, 0, SK6812_BUF_SIZE );
 
-    return err;
+    /* Configure RMT TX channel */
+    rmt_tx_channel_config_t tx_chan_config = {
+        .gpio_num          = SK6812_GPIO,
+        .clk_src           = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz     = SK6812_RMT_RESOLUTION_HZ,
+        .mem_block_symbols = 64,
+        .trans_queue_depth = 4,
+    };
+
+    esp_err_t err;
+    err = rmt_new_tx_channel( &tx_chan_config, &_rmt_channel );
+    if ( err != ESP_OK ) return err;
+
+    /* Create bytes encoder for SK6812 protocol */
+    rmt_bytes_encoder_config_t bytes_encoder_config = {
+        .bit0 = {
+            .duration0 = SK6812_T0H_TICKS,
+            .level0    = 1,
+            .duration1 = SK6812_T0L_TICKS,
+            .level1    = 0,
+        },
+        .bit1 = {
+            .duration0 = SK6812_T1H_TICKS,
+            .level0    = 1,
+            .duration1 = SK6812_T1L_TICKS,
+            .level1    = 0,
+        },
+        .flags.msb_first = 1,
+    };
+
+    err = rmt_new_bytes_encoder( &bytes_encoder_config, &_rmt_encoder );
+    if ( err != ESP_OK )
+    {
+        rmt_del_channel( _rmt_channel );
+        _rmt_channel = NULL;
+        return err;
+    }
+
+    err = rmt_enable( _rmt_channel );
+    if ( err != ESP_OK )
+    {
+        rmt_del_encoder( _rmt_encoder );
+        rmt_del_channel( _rmt_channel );
+        _rmt_encoder = NULL;
+        _rmt_channel = NULL;
+        return err;
+    }
+
+    _initialised = true;
+    return ESP_OK;
 }
 
 esp_err_t core2foraws_rgb_led_single_color_set( uint8_t led_num, uint32_t color )
 {
-    esp_err_t err = ESP_OK;
+    if ( led_num >= RGB_LED_NUMS )
+    {
+        ESP_LOGE( _TAG, "LED number %u is out of range (0-%u)",
+                  led_num, RGB_LED_NUMS - 1 );
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    err = led_strip_set_pixel( &_led_strip, led_num, rgb_from_code( color ) );
+    size_t idx = led_num * SK6812_BYTES_PER_LED;
+    /* SK6812 expects GRB order */
+    _led_buf[idx]     = ( color >> 8 )  & 0xFF;   /* G */
+    _led_buf[idx + 1] = ( color >> 16 ) & 0xFF;   /* R */
+    _led_buf[idx + 2] =   color         & 0xFF;   /* B */
 
-    return err;
+    return ESP_OK;
 }
 
-esp_err_t core2foraws_rgb_led_side_color_set( rgb_led_side_type_t side, uint32_t color )
+esp_err_t core2foraws_rgb_led_side_color_set( rgb_led_side_type_t side,
+                                              uint32_t color )
 {
-    esp_err_t err = ESP_OK;
+    size_t start, count;
 
     if ( side == RGB_LED_SIDE_RIGHT )
     {
-        err |= led_strip_fill( &_led_strip, 0, RGB_LED_NUMS / 2, rgb_from_code( color ) );
+        start = 0;
+        count = RGB_LED_NUMS / 2;
+    }
+    else if ( side == RGB_LED_SIDE_LEFT )
+    {
+        start = RGB_LED_NUMS / 2;
+        count = RGB_LED_NUMS / 2;
     }
     else
     {
-        err |= led_strip_fill( &_led_strip, RGB_LED_NUMS / 2, RGB_LED_NUMS / 2, rgb_from_code( color ) );
+        ESP_LOGE( _TAG, "Invalid side value: %d", side );
+        return ESP_ERR_INVALID_ARG;
     }
 
-    return core2foraws_common_error( err );
+    for ( size_t i = start; i < start + count; i++ )
+    {
+        size_t idx = i * SK6812_BYTES_PER_LED;
+        _led_buf[idx]     = ( color >> 8 )  & 0xFF;
+        _led_buf[idx + 1] = ( color >> 16 ) & 0xFF;
+        _led_buf[idx + 2] =   color         & 0xFF;
+    }
+
+    return ESP_OK;
 }
 
 esp_err_t core2foraws_rgb_led_brightness_set( uint8_t brightness )
 {
-#ifdef LED_STRIP_BRIGHTNESS
-    esp_err_t err = ESP_OK;
-    _led_strip.brightness = brightness;
-#else
-    esp_err_t err = ESP_ERR_NOT_SUPPORTED;
-#endif
+    /* Clamp to 100 and scale percentage (0-100) to driver range (0-255) */
+    if ( brightness > 100 )
+    {
+        brightness = 100;
+    }
+    _brightness = (uint8_t)( ( (uint16_t)brightness * 255 ) / 100 );
 
-    return err;
+    return ESP_OK;
 }
 
 esp_err_t core2foraws_rgb_led_write( void )
 {
-    esp_err_t err = ESP_OK;
+    esp_err_t err;
 
-    err = led_strip_flush( &_led_strip );
+    /* Apply brightness scaling to a separate TX buffer */
+    if ( _brightness != 255 )
+    {
+        for ( size_t i = 0; i < SK6812_BUF_SIZE; i++ )
+        {
+            _tx_buf[i] = _scale8_video( _led_buf[i], _brightness );
+        }
+    }
+    else
+    {
+        memcpy( _tx_buf, _led_buf, SK6812_BUF_SIZE );
+    }
 
-    return err;
+    /* Wait for any previous TX to complete */
+    err = rmt_tx_wait_all_done( _rmt_channel,
+                                pdMS_TO_TICKS( SK6812_FLUSH_TIMEOUT_MS ) );
+    if ( err != ESP_OK && err != ESP_ERR_TIMEOUT )
+    {
+        return err;
+    }
+
+    esp_rom_delay_us( SK6812_RESET_US );
+
+    rmt_transmit_config_t tx_config = {
+        .loop_count = 0,
+    };
+
+    return rmt_transmit( _rmt_channel, _rmt_encoder, _tx_buf,
+                         SK6812_BUF_SIZE, &tx_config );
 }
 
 esp_err_t core2foraws_rgb_led_clear( void )
 {
-    esp_err_t err = ESP_OK;
-    
-    err = led_strip_fill( &_led_strip, 0, RGB_LED_NUMS, rgb_from_code( 0x00000000 ) );
-
-    return err;
+    memset( _led_buf, 0, SK6812_BUF_SIZE );
+    return ESP_OK;
 }
 
 esp_err_t core2foraws_rgb_led_deinit( void )
 {
-    esp_err_t err = ESP_OK;
-    
-    err = led_strip_free( &_led_strip );
+    if ( !_initialised )
+    {
+        return ESP_OK;
+    }
+
+    _initialised = false;
+    memset( _led_buf, 0, SK6812_BUF_SIZE );
+
+    rmt_disable( _rmt_channel );
+    rmt_del_encoder( _rmt_encoder );
+    esp_err_t err = rmt_del_channel( _rmt_channel );
+    _rmt_encoder = NULL;
+    _rmt_channel = NULL;
 
     return err;
 }

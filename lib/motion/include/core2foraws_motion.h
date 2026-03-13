@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -33,7 +33,6 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-#include <driver/i2c.h>
 #include <esp_err.h>
 
 /**
@@ -148,7 +147,7 @@ esp_err_t core2foraws_motion_accel_get( float *x, float *y, float *z );
  * 
  *      float g_roll, g_pitch, g_yaw;
  *      core2foraws_motion_gyro_get (&g_roll, &g_pitch, &g_yaw );
- *      ESP_LOGI( TAG, "\tGyro roll:%.2f, pitch:%.2f, yaw:%.2f", g_row, g_pitch, g_yaw );
+ *      ESP_LOGI( TAG, "\tGyro roll:%.2f, pitch:%.2f, yaw:%.2f", g_roll, g_pitch, g_yaw );
  *  }
  * @endcode
  * 

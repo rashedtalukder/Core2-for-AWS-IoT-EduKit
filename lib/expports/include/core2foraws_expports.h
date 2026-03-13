@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -39,7 +39,7 @@ extern "C" {
 #include <driver/uart.h>
 #include <esp_err.h>
 
-#include "i2c_manager.h"
+#include "core2foraws_i2c.h"
 
 /**
  * @brief The I2C SDA pin on expansion port A.
@@ -69,7 +69,7 @@ extern "C" {
  * @brief Placeholder for I2C comms without a register address
  */
 /* @[declare_core2foraws_expports_i2c_no_register_addr] */
-#define I2C_NO_REGISTER_ADDR I2C_NO_REG
+#define I2C_NO_REGISTER_ADDR CORE2FORAWS_I2C_NO_REG
 /* @[declare_core2foraws_expports_i2c_no_register_addr] */
 
 /**
@@ -395,6 +395,22 @@ esp_err_t core2foraws_expports_i2c_begin( void );
 /* @[declare_core2foraws_expport_i2c_begin] */
 
 /**
+ * @brief Registers an I2C device on the external bus (Port A).
+ *
+ * Must be called after @ref core2foraws_expports_i2c_begin and before
+ * using @ref core2foraws_expports_i2c_read or
+ * @ref core2foraws_expports_i2c_write with the returned handle.
+ *
+ * @param[in] device_address The 7-bit I2C device address.
+ * @param[in] scl_speed_hz The SCL clock speed in Hz for this device.
+ * @param[out] dev_handle Pointer to receive the device handle.
+ * @return ESP_OK on success, or an error code.
+ */
+/* @[declare_core2foraws_expport_i2c_device_add] */
+esp_err_t core2foraws_expports_i2c_device_add( uint16_t device_address, uint32_t scl_speed_hz, i2c_master_dev_handle_t *dev_handle );
+/* @[declare_core2foraws_expport_i2c_device_add] */
+
+/**
  * @brief Read from the I2C peripheral attatched to expansion port A.
  *
  * A thread-safe method to read from the I2C peripheral.
@@ -474,7 +490,7 @@ esp_err_t core2foraws_expports_i2c_begin( void );
  *  - ESP_ERR_INVALID_ARG	: Driver parameter error
  */
 /* @[declare_core2foraws_expport_i2c_read] */
-esp_err_t core2foraws_expports_i2c_read( uint16_t device_address, uint32_t register_address, uint8_t *data, uint16_t length );
+esp_err_t core2foraws_expports_i2c_read( i2c_master_dev_handle_t dev_handle, uint32_t register_address, uint8_t *data, uint16_t length );
 /* @[declare_core2foraws_expport_i2c_read] */
 
 /**
@@ -534,7 +550,7 @@ esp_err_t core2foraws_expports_i2c_read( uint16_t device_address, uint32_t regis
  *  - ESP_ERR_INVALID_ARG	: Driver parameter error
  */
 /* @[declare_core2foraws_expport_i2c_write] */
-esp_err_t core2foraws_expports_i2c_write( uint16_t device_address, uint32_t register_address, const uint8_t *data, uint16_t length );
+esp_err_t core2foraws_expports_i2c_write( i2c_master_dev_handle_t dev_handle, uint32_t register_address, const uint8_t *data, uint16_t length );
 /* @[declare_core2foraws_expport_i2c_write] */
 
 /**

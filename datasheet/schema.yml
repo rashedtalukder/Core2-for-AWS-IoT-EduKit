@@ -1,0 +1,505 @@
+schema_version: "1.0"
+device:
+  name: "M5Stack Core2 for AWS"
+  variant: "Core2 + add-on board via M5Bus"
+  description: "Two-board wiring schema derived from the Core2 main schematic PDF and add-on board wiring diagram."
+
+power_nets:
+  - name: "USB_5V"
+  - name: "BUS_5V"
+  - name: "SYS_VBAT"
+  - name: "BAT"
+  - name: "BAT+"
+  - name: "MCU_VDD"
+    nominal_voltage: 3.3
+  - name: "PERI_VDD"
+    nominal_voltage: 3.3
+  - name: "RTC_VDD"
+    nominal_voltage: 3.3
+  - name: "IPS_BUS"
+  - name: "GND"
+
+boards:
+  core_board:
+    name: "M5Stack Core2 main board"
+    source: "CORE2_V1.0_SCH.pdf page 1"
+    citation: ":contentReference[oaicite:1]{index=1}"
+
+    mcu:
+      ref: "U7"
+      part: "ESP32-D0WDQ6"
+      rails:
+        - "MCU_VDD"
+        - "GND"
+      pins:
+        GPIO23: { net: "GPIO23", functions: ["SPI_MOSI", "M5Bus pin 7"] }
+        GPIO38: { net: "GPIO38", functions: ["SPI_MISO", "SD MISO", "M5Bus pin 9"] }
+        GPIO18: { net: "GPIO18", functions: ["SPI_SCK", "SD SCK", "M5Bus pin 11"] }
+        GPIO5:  { net: "GPIO5",  functions: ["LCD_CS"] }
+        GPIO15: { net: "GPIO15", functions: ["LCD_DC"] }
+        GPIO4:  { net: "GPIO4",  functions: ["SD_CS"] }
+        GPIO21: { net: "GPIO21", functions: ["SYS_I2C_SDA", "RTC SDA", "Touch SDA", "PMU SDA", "M5Bus pin 17"] }
+        GPIO22: { net: "GPIO22", functions: ["SYS_I2C_SCL", "RTC SCL", "Touch SCL", "PMU SCL", "M5Bus pin 18"] }
+        GPIO39: { net: "GPIO39", functions: ["Touch_INT"] }
+        GPIO32: { net: "GPIO32", functions: ["EXT_I2C_SDA", "Port-A SDA", "M5Bus pin 19"] }
+        GPIO33: { net: "GPIO33", functions: ["EXT_I2C_SCL", "Port-A SCL", "M5Bus pin 20"] }
+        GPIO0:  { net: "GPIO0",  functions: ["I2S_LRCK", "M5Bus pin 24"] }
+        GPIO12: { net: "GPIO12", functions: ["I2S_BCLK"] }
+        GPIO2:  { net: "GPIO2",  functions: ["I2S_SDATA", "M5Bus pin 23"] }
+        GPIO13: { net: "GPIO13", functions: ["UART2_RXD", "M5Bus pin 15"] }
+        GPIO14: { net: "GPIO14", functions: ["UART2_TXD", "M5Bus pin 16"] }
+        GPIO34: { net: "GPIO34", functions: ["ADC", "M5Bus pin 26"] }
+        GPIO35: { net: "GPIO35", functions: ["ADC", "M5Bus pin 2"] }
+        GPIO36: { net: "GPIO36", functions: ["ADC", "M5Bus pin 4"] }
+        GPIO25: { net: "GPIO25", functions: ["DAC", "M5Bus pin 8"] }
+        GPIO26: { net: "GPIO26", functions: ["DAC", "M5Bus pin 10"] }
+        GPIO27: { net: "GPIO27", functions: ["M5Bus pin 21"] }
+        GPIO19: { net: "GPIO19", functions: ["M5Bus pin 22"] }
+        GPIO3:  { net: "GPIO3",  functions: ["U0RXD", "M5Bus pin 13"] }
+        GPIO1:  { net: "GPIO1",  functions: ["U0TXD", "M5Bus pin 14"] }
+        EN:     { net: "MCU_RST", functions: ["Reset", "M5Bus pin 6"] }
+
+    connectors:
+      m5_bus:
+        ref: "BUS1"
+        name: "M5_BUS"
+        type: "30-pin board-to-board"
+        pins:
+          1:  { signal: "GND" }
+          2:  { signal: "GPIO35" }
+          3:  { signal: "GND" }
+          4:  { signal: "GPIO36" }
+          5:  { signal: "GND" }
+          6:  { signal: "EN" }
+          7:  { signal: "GPIO23" }
+          8:  { signal: "GPIO25" }
+          9:  { signal: "GPIO38" }
+          10: { signal: "GPIO26" }
+          11: { signal: "GPIO18" }
+          12: { signal: "MCU_VDD", voltage: 3.3 }
+          13: { signal: "GPIO3" }
+          14: { signal: "GPIO1" }
+          15: { signal: "GPIO13" }
+          16: { signal: "GPIO14" }
+          17: { signal: "GPIO21" }
+          18: { signal: "GPIO22" }
+          19: { signal: "GPIO32" }
+          20: { signal: "GPIO33" }
+          21: { signal: "GPIO27" }
+          22: { signal: "GPIO19" }
+          23: { signal: "GPIO2" }
+          24: { signal: "GPIO0" }
+          25: { signal: "HPWR" }
+          26: { signal: "GPIO34" }
+          27: { signal: "HPWR" }
+          28: { signal: "BUS_5V", voltage: 5.0 }
+          29: { signal: "HPWR" }
+          30: { signal: "BAT", alias: "SYS_VBAT" }
+
+      port_a:
+        ref: "J4"
+        name: "PORT-A (Red) — I2C"
+        type: "4-pin Grove"
+        pins:
+          1: { signal: "GPIO32", function: "EXT_I2C_SDA" }
+          2: { signal: "GPIO33", function: "EXT_I2C_SCL" }
+          3: { signal: "BUS_5V", voltage: 5.0 }
+          4: { signal: "GND" }
+        notes:
+          - "Used for external I2C 'unit' accessories only. On-board peripherals use the internal I2C bus (GPIO21/GPIO22)."
+
+      port_b:
+        name: "PORT-B (Black) — DAC / ADC"
+        type: "4-pin Grove"
+        pins:
+          1: { signal: "GPIO26", function: "DAC" }
+          2: { signal: "GPIO36", function: "ADC" }
+          3: { signal: "BUS_5V", voltage: 5.0 }
+          4: { signal: "GND" }
+        notes:
+          - "Used for analog input/output 'unit' accessories."
+
+      port_c:
+        name: "PORT-C (Blue) — UART"
+        type: "4-pin Grove"
+        pins:
+          1: { signal: "GPIO13", function: "UART2_RXD" }
+          2: { signal: "GPIO14", function: "UART2_TXD" }
+          3: { signal: "BUS_5V", voltage: 5.0 }
+          4: { signal: "GND" }
+        notes:
+          - "Used for serial 'unit' accessories (UART2)."
+
+      ext_batt:
+        ref: "J2"
+        name: "EXT.BATT"
+        type: "2-pin"
+        pins:
+          1: { signal: "SYS_VBAT" }
+          2: { signal: "GND" }
+
+      usb_c:
+        ref: "J3"
+        name: "USB Type-C"
+        functions: ["power", "USB-UART"]
+
+    peripherals:
+      pmu:
+        ref: "U4"
+        part: "AXP192"
+        interface:
+          type: "I2C"
+          sda: "GPIO21"
+          scl: "GPIO22"
+        notes:
+          - "Main PMU for system rails and power sequencing."
+
+      rtc:
+        ref: "U5"
+        part: "BM8563"
+        interface:
+          type: "I2C"
+          sda: "GPIO21"
+          scl: "GPIO22"
+        interrupt: null
+        clkout: null
+        backup_battery: "BT1 RTC_BAT"
+
+      display:
+        ref: "LCD1"
+        part: "ILI9342C-based 2.0in LCD module"
+        interface:
+          type: "SPI"
+          mosi: "GPIO23"
+          miso: "GPIO38"
+          sck: "GPIO18"
+          cs: "GPIO5"
+          dc: "GPIO15"
+          rst: "LCD_RST"
+          backlight: "LCD_BL"
+        power:
+          vdd: "PERI_VDD"
+          led_a: "LCD_BL"
+        notes:
+          - "LCD_RST is driven by AXP192 GPIO4 (NMOS open-drain), not an ESP32 GPIO."
+          - "LCD_BL (backlight) is powered by AXP192 DCDC3 rail (2.2V-3.3V), not an ESP32 GPIO."
+
+      touch_panel:
+        ref: "CTP1"
+        part: "Capacitive touch panel"
+        interface:
+          type: "I2C"
+          sda: "GPIO21"
+          scl: "GPIO22"
+        signals:
+          int: "GPIO39"
+          rst: "LCD_RST"
+        power:
+          vdd: "MCU_VDD"
+        notes:
+          - "Touch reset shares LCD_RST line, driven by AXP192 GPIO4."
+
+      sd_card:
+        ref: "J1"
+        part: "TF_CARD_SOCKET"
+        interface:
+          type: "SPI"
+          miso: "GPIO38"
+          mosi: "GPIO23"
+          sck: "GPIO18"
+          cs: "GPIO4"
+        power:
+          vdd: "PERI_VDD"
+        notes:
+          - "Shares the ESP32 SPI bus with the LCD; separate chip selects."
+
+      speaker_amp:
+        ref: "U6"
+        part: "NS4168"
+        interface:
+          type: "I2S"
+          lrck: "GPIO0"
+          bclk: "GPIO12"
+          data: "GPIO2"
+          enable: "SPK_EN"
+        output: "SPEAKER_PAD"
+
+      spi_flash:
+        ref: "U1"
+        part: "XM25QH128BHIQ"
+        interface:
+          type: "ESP32 integrated SPI flash"
+          cs: "GPIO11"
+          sclk: "GPIO6"
+          sio0: "GPIO7"
+          sio1: "GPIO8"
+          sio2: "GPIO9"
+          sio3: "GPIO10"
+
+      psram:
+        ref: "U2"
+        part: "ESPSRAM64H"
+        interface:
+          type: "ESP32 PSRAM"
+          sclk: "GPIO17"
+          sio0: "GPIO16"
+          sio1: "GPIO8"
+          sio2: "GPIO9"
+          sio3: "GPIO10"
+          cs: "GPIO7"
+
+      usb_uart:
+        ref: "U3"
+        part: "CP2104-F03-GMR"
+        interface:
+          usb: ["USB_DP", "USB_DM"]
+          uart_to_esp32:
+            tx_to_esp_rx: "GPIO3"
+            rx_to_esp_tx: "GPIO1"
+          reset_bootstrap:
+            rst: "MCU_RST"
+            boot: "GPIO0"
+
+    shared_buses:
+      sys_i2c:
+        sda: "GPIO21"
+        scl: "GPIO22"
+        devices: ["AXP192", "BM8563", "Touch Panel", "MPU6886 (add-on board)", "ATECC608 (add-on board)"]
+        notes:
+          - "All on-board I2C peripherals — including those on the add-on board — share this internal I2C bus."
+      ext_i2c:
+        sda: "GPIO32"
+        scl: "GPIO33"
+        devices: ["Port-A (Red) external Grove connector — for external I2C 'unit' accessories only"]
+      ext_dac_adc:
+        dac: "GPIO26"
+        adc: "GPIO36"
+        devices: ["Port-B (Black) external Grove connector — for analog 'unit' accessories"]
+      ext_uart:
+        rx: "GPIO13"
+        tx: "GPIO14"
+        devices: ["Port-C (Blue) external Grove connector — for serial 'unit' accessories"]
+      spi_shared_lcd_sd:
+        mosi: "GPIO23"
+        miso: "GPIO38"
+        sck: "GPIO18"
+        devices:
+          - { name: "LCD", cs: "GPIO5" }
+          - { name: "SD card", cs: "GPIO4" }
+
+  addon_board:
+    name: "Core2 for AWS add-on board"
+    source: "Provided add-on schematic image"
+    attaches_to: "core_board.connectors.m5_bus"
+
+    connectors:
+      m5_bus_mate:
+        ref: "J4"
+        name: "M5Stack_BUS2"
+        type: "30-pin board-to-board"
+        pins:
+          1:  { signal: "GND" }
+          2:  { signal: "GPIO35" }
+          3:  { signal: "GND" }
+          4:  { signal: "GPIO36" }
+          5:  { signal: "GND" }
+          6:  { signal: "EN" }
+          7:  { signal: "GPIO23" }
+          8:  { signal: "RGB" }
+          9:  { signal: "GPIO38" }
+          10: { signal: "GPIO26" }
+          11: { signal: "GPIO18" }
+          12: { signal: "+3.3V" }
+          13: { signal: "GPIO3" }
+          14: { signal: "U2_TXD" }
+          15: { signal: "GPIO13" }
+          16: { signal: "U2_RXD" }
+          17: { signal: "GPIO21" }
+          18: { signal: "I2C_SCL" }
+          19: { signal: "GPIO32" }
+          20: { signal: "I2C_SDA" }
+          21: { signal: "GPIO27" }
+          22: { signal: "NC" }
+          23: { signal: "GPIO2" }
+          24: { signal: "CLK" }
+          25: { signal: "HPWR" }
+          26: { signal: "DAT" }
+          27: { signal: "HPWR" }
+          28: { signal: "+5V" }
+          29: { signal: "BATTERY" }
+          30: { signal: "BAT+" }
+
+      uart_socket:
+        ref: "J1"
+        type: "4-pin"
+        pins:
+          1: { signal: "UART_RXD", source_net: "U2_RXD" }
+          2: { signal: "UART_TXD", source_net: "U2_TXD" }
+          3: { signal: "VCC", source_net: "+5V" }
+          4: { signal: "GND" }
+
+      gpio_socket:
+        ref: "J2"
+        type: "4-pin"
+        pins:
+          1: { signal: "GPIO36" }
+          2: { signal: "GPIO26" }
+          3: { signal: "VCC", source_net: "+5V" }
+          4: { signal: "GND" }
+
+      socket_power_i2c:
+        ref: "J3"
+        type: "4-pin"
+        pins:
+          1: { signal: "GND" }
+          2: { signal: "+5V", alias: "VIN" }
+          3: { signal: "I2C_SDA" }
+          4: { signal: "I2C_SCL" }
+        pullups:
+          sda: { resistor: "R2", value: "4.7k", to: "+3.3V" }
+          scl: { resistor: "R3", value: "4.7k", to: "+3.3V" }
+
+    peripherals:
+      microphone:
+        ref: "U2"
+        part: "SPM1423HM4H-B"
+        interface:
+          type: "PDM"
+          data: "DAT"
+          clock: "CLK"
+        power:
+          vdd: "+3.3V"
+          gnd: "GND"
+
+      imu:
+        ref: "U1"
+        part: "MPU-6886"
+        interface:
+          type: "I2C"
+          sda: "GPIO21"
+          scl: "GPIO22"
+          bus: "Internal I2C (SYS_I2C) via M5Bus pins 17/18"
+        address_select:
+          pin: "AD0/SDO"
+          pull: { resistor: "R5", value: "4.7k", to: "GND" }
+        power:
+          vdd: "+3.3V"
+          vddio: "+3.3V"
+        notes:
+          - "Connected to internal I2C bus (GPIO21/GPIO22), NOT the external Port-A I2C."
+          - "INT and CS appear not routed for active use in this diagram."
+
+      secure_element:
+        ref: "U4"
+        part: "ATECC608A-TNGTLSU-B"
+        interface:
+          type: "I2C"
+          sda: "GPIO21"
+          scl: "GPIO22"
+          bus: "Internal I2C (SYS_I2C) via M5Bus pins 17/18"
+        power:
+          vcc: "+3.3V"
+          gnd: "GND"
+        notes:
+          - "Connected to internal I2C bus (GPIO21/GPIO22), NOT the external Port-A I2C."
+
+      rgb_led_chain:
+        count: 10
+        part: "SK6812"
+        data_path:
+          input_net: "RGB"
+          driver_stage:
+            transistor: "Q1"
+            part: "SS8550Y2"
+            bias:
+              base_resistor: { ref: "R8", value: "1k" }
+              pullup: { ref: "R7", value: "4.7k", to: "+3.3V" }
+          led_data_net: "SK6812"
+        power:
+          vdd: "+5V"
+          gnd: "GND"
+        chain_order:
+          - "LED1"
+          - "LED2"
+          - "LED3"
+          - "LED4"
+          - "LED5"
+          - "LED6"
+          - "LED7"
+          - "LED8"
+          - "LED9"
+          - "LED10"
+
+      charger:
+        ref: "U3"
+        part: "TP4057"
+        role: "Li-ion charger"
+        connections:
+          vcc: "VIN"
+          bat: "BAT+"
+          prog_resistor:
+            ref: "R9"
+            value: "2k"
+          status_leds:
+            ref: "D1"
+            part: "1615RG"
+        notes:
+          - "Local battery charging function on add-on board."
+
+    local_nets:
+      - { name: "+3.3V" }
+      - { name: "+5V" }
+      - { name: "BAT+" }
+      - { name: "VIN" }
+      - { name: "GND" }
+      - { name: "I2C_SDA" }
+      - { name: "I2C_SCL" }
+      - { name: "DAT" }
+      - { name: "CLK" }
+      - { name: "RGB" }
+      - { name: "U2_RXD" }
+      - { name: "U2_TXD" }
+
+inter_board_links:
+  via_m5bus:
+    - { core_pin: 1, addon_pin: 1, signal: "GND" }
+    - { core_pin: 2, addon_pin: 2, signal: "GPIO35" }
+    - { core_pin: 4, addon_pin: 4, signal: "GPIO36" }
+    - { core_pin: 6, addon_pin: 6, signal: "EN" }
+    - { core_pin: 7, addon_pin: 7, signal: "GPIO23" }
+    - { core_pin: 9, addon_pin: 9, signal: "GPIO38" }
+    - { core_pin: 10, addon_pin: 10, signal: "GPIO26" }
+    - { core_pin: 11, addon_pin: 11, signal: "GPIO18" }
+    - { core_pin: 12, addon_pin: 12, signal: "MCU_VDD/+3.3V" }
+    - { core_pin: 13, addon_pin: 13, signal: "GPIO3" }
+    - { core_pin: 15, addon_pin: 15, signal: "GPIO13" }
+    - { core_pin: 17, addon_pin: 17, signal: "GPIO21" }
+    - { core_pin: 19, addon_pin: 19, signal: "GPIO32" }
+    - { core_pin: 21, addon_pin: 21, signal: "GPIO27" }
+    - { core_pin: 23, addon_pin: 23, signal: "GPIO2" }
+    - { core_pin: 24, addon_pin: 24, signal: "GPIO0/CLK" }
+    - { core_pin: 26, addon_pin: 26, signal: "GPIO34/DAT" }
+    - { core_pin: 28, addon_pin: 28, signal: "BUS_5V/+5V" }
+    - { core_pin: 30, addon_pin: 30, signal: "BAT/BAT+" }
+
+functional_summary:
+  main_board:
+    - "ESP32 drives LCD and SD card on a shared SPI bus."
+    - "RTC, PMU, and touch controller share the internal I2C bus on GPIO21/GPIO22."
+    - "Port-A (Red) exposes external I2C on GPIO32/GPIO33 for external 'unit' accessories."
+    - "Port-B (Black) exposes DAC (GPIO26) and ADC (GPIO36) for analog 'unit' accessories."
+    - "Port-C (Blue) exposes UART2 (GPIO13 RX / GPIO14 TX) for serial 'unit' accessories."
+    - "Speaker amp uses I2S from GPIO0/GPIO12/GPIO2."
+    - "M5Bus exports power and many GPIOs to the add-on board."
+  addon_board:
+    - "Microphone uses CLK and DAT nets from M5Bus."
+    - "MPU6886 IMU and ATECC608A secure element use the internal I2C bus (GPIO21/GPIO22) via M5Bus pins 17/18."
+    - "10 SK6812 RGB LEDs are powered from +5V and driven from the RGB net through a transistor stage."
+    - "Add-on provides UART, GPIO, and power/I2C sockets."
+
+notes:
+  - "This YAML preserves net names from the schematics where possible."
+  - "A few add-on M5Bus labels use local aliases such as CLK, DAT, RGB, U2_TXD, and U2_RXD rather than raw MCU GPIO names."
+  - "For autogenerated BSP/driver work, treat the Core2 main board and add-on board as separate net domains joined by M5Bus."
+  - "All on-board I2C peripherals (both core board and add-on board) share the internal I2C bus on GPIO21/GPIO22. The external I2C bus (GPIO32/GPIO33) on Port-A is only used by external 'unit' accessories."
+  - "Source basis: Core board from the uploaded PDF page 1 and add-on board from the provided schematic image. :contentReference[oaicite:2]{index=2}"

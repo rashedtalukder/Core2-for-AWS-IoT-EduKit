@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -26,17 +26,10 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <esp_freertos_hooks.h>
-#include <freertos/semphr.h>
 
-#include <mbedtls/config.h>
 #include <mbedtls/atca_mbedtls_wrap.h>
-#include <mbedtls/platform.h>
-#include <mbedtls/debug.h>
-#include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/pk.h>
@@ -50,13 +43,14 @@ static mbedtls_entropy_context _entropy;
 static mbedtls_ctr_drbg_context _ctr_drbg;
 
 static const char *_TAG = "CORE2FORAWS_CRYPTO";
+static bool _crypto_initialized = false;
 
 static int _configure_mbedtls_rng( void );
 static void _close_mbedtls_rng( void );
 
 static esp_err_t _configure_mbedtls_rng( void )
 {
-    esp_err_t err;
+    int err;
     const char * seed = "\tAWS IoT Kit random seed string";
     mbedtls_ctr_drbg_init( &_ctr_drbg );
 
@@ -90,14 +84,17 @@ esp_err_t core2foraws_crypto_init( void )
 {
     ESP_LOGI( _TAG, "\tInitializing" );
 
-    ATCA_STATUS err = ATCA_SUCCESS;
+    if ( _crypto_initialized )
+    {
+        return ESP_OK;
+    }
 
     if ( _configure_mbedtls_rng() != ESP_OK )
     {
         return ESP_FAIL;
     }
 
-    err |= atcab_init( &cfg_ateccx08a_i2c_default );
+    ATCA_STATUS err = atcab_init( &cfg_ateccx08a_i2c_default );
     
     if ( err != ATCA_SUCCESS ) 
     {
@@ -105,6 +102,8 @@ esp_err_t core2foraws_crypto_init( void )
         _close_mbedtls_rng();
         return core2foraws_common_error( err );
     }
+
+    _crypto_initialized = true;
     ESP_LOGD( _TAG, "\tSuccessfully initialized ATECC608" );
     
     return core2foraws_common_error( err ); 
@@ -112,10 +111,14 @@ esp_err_t core2foraws_crypto_init( void )
 
 esp_err_t core2foraws_crypto_serial_get( char *serial_number )
 {
-    ATCA_STATUS err = ATCA_SUCCESS;
+    if ( serial_number == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     uint8_t serial[ ATCA_SERIAL_NUM_SIZE ];
-       
-    err |= atcab_read_serial_number( serial );
+
+    ATCA_STATUS err = atcab_read_serial_number( serial );
     
     if ( err != ATCA_SUCCESS )
     {
@@ -127,6 +130,8 @@ esp_err_t core2foraws_crypto_serial_get( char *serial_number )
         {
             sprintf( serial_number + i * 2, "%02X", serial[ i ] );
         }
+
+        serial_number[ CRYPTO_SERIAL_STR_SIZE - 1 ] = '\0';
     }
 
     return core2foraws_common_error( err );
@@ -135,7 +140,10 @@ esp_err_t core2foraws_crypto_serial_get( char *serial_number )
 
 esp_err_t core2foraws_crypto_pubkey_base64_get( char *public_key )
 {
-    ATCA_STATUS err = ATCA_SUCCESS;
+    if ( public_key == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
     
     size_t buf_len = CRYPTO_PUB_KEY_SIZE;
     uint8_t buf[ buf_len ];
@@ -150,7 +158,7 @@ esp_err_t core2foraws_crypto_pubkey_base64_get( char *public_key )
     size_t public_key_x509_header_len = sizeof( public_key_x509_header );
     uint8_t pubkey[ ATCA_PUB_KEY_SIZE ];
 
-    err |= atcab_get_pubkey( 0, pubkey );
+    ATCA_STATUS err = atcab_get_pubkey( 0, pubkey );
     if ( err != ATCA_SUCCESS )
     {
         ESP_LOGE( _TAG, "\tFailed to get public key from ATECC608. atcab_get_pubkey returned %x", err );
@@ -166,7 +174,17 @@ esp_err_t core2foraws_crypto_pubkey_base64_get( char *public_key )
     memcpy( tmp + public_key_x509_header_len, pubkey, ATCA_PUB_KEY_SIZE );
 
     /* Convert to base 64 */
-    err |= atcab_base64encode( tmp, ATCA_PUB_KEY_SIZE + public_key_x509_header_len, ( char * )buf, &buf_len );
+    err = atcab_base64encode( tmp, ATCA_PUB_KEY_SIZE + public_key_x509_header_len, ( char * )buf, &buf_len );
+    if ( err != ATCA_SUCCESS )
+    {
+        ESP_LOGE( _TAG, "\tFailed to base64 encode public key. atcab_base64encode returned %x", err );
+        return core2foraws_common_error( err );
+    }
+
+    if ( buf_len >= CRYPTO_PUB_KEY_SIZE )
+    {
+        return ESP_FAIL;
+    }
  
     memcpy( public_key, buf, buf_len );
     
@@ -178,17 +196,25 @@ esp_err_t core2foraws_crypto_pubkey_base64_get( char *public_key )
 
 esp_err_t core2foraws_crypto_sha256_sign( const unsigned char *message, uint8_t *signature, size_t *signature_length )
 {
+    if ( message == NULL || signature == NULL || signature_length == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     int mbed_err = 0;
     mbedtls_pk_context pkey;
+    mbedtls_pk_init( &pkey );
 
-    mbed_err |= atca_mbedtls_pk_init( &pkey, 0 );
+    mbed_err = atca_mbedtls_pk_init( &pkey, 0 );
     if ( mbed_err != 0 )
     {
         ESP_LOGE( _TAG, "\tFailed to initialize private key access from ATECC608. atca_mbedtls_pk_init returned -0x%x", -mbed_err );
         return core2foraws_common_error( mbed_err );
     }
 
-    mbed_err |= mbedtls_pk_sign( &pkey, MBEDTLS_MD_SHA256, message, 0, signature, signature_length, mbedtls_ctr_drbg_random, &_ctr_drbg );
+    mbed_err = mbedtls_pk_sign( &pkey, MBEDTLS_MD_SHA256, message, 0, signature, MBEDTLS_PK_SIGNATURE_MAX_SIZE, signature_length, mbedtls_ctr_drbg_random, &_ctr_drbg );
+    mbedtls_pk_free( &pkey );
+
     if (mbed_err != 0) {
         ESP_LOGE( _TAG, "\tFailed to sign message with ATECC608 private key. mbedtls_pk_sign returned -0x%x", -mbed_err );
     }
@@ -199,22 +225,29 @@ esp_err_t core2foraws_crypto_sha256_sign( const unsigned char *message, uint8_t 
 
 esp_err_t core2foraws_crypto_sha256_verify( const unsigned char *message, const uint8_t *signature, const size_t signature_length, bool *verified )
 {
+    if ( message == NULL || signature == NULL || verified == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     int mbed_err = 0;
     mbedtls_pk_context pkey;
     *verified = false;
+    mbedtls_pk_init( &pkey );
 
-    mbed_err |= atca_mbedtls_pk_init( &pkey, 0 );
+    mbed_err = atca_mbedtls_pk_init( &pkey, 0 );
     if ( mbed_err != 0 )
     {
         ESP_LOGE( _TAG, "\tFailed to initialize private key access from ATECC608. atca_mbedtls_pk_init returned -0x%x", -mbed_err );
         return core2foraws_common_error( mbed_err );
     }
 
-    mbed_err |= mbedtls_pk_verify( &pkey, MBEDTLS_MD_SHA256, message, 0, signature, signature_length );
+    mbed_err = mbedtls_pk_verify( &pkey, MBEDTLS_MD_SHA256, message, 0, signature, signature_length );
+    mbedtls_pk_free( &pkey );
     
     if ( mbed_err != 0 )
     {
-        ESP_LOGE( _TAG, "\tFailed to verify message with ATECC608 private key. mbedtls_pk_sign returned -0x%x", -mbed_err );
+        ESP_LOGE( _TAG, "\tFailed to verify message with ATECC608 private key. mbedtls_pk_verify returned -0x%x", -mbed_err );
     }
     else
     {

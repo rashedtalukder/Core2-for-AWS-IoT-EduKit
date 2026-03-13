@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2022 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -51,6 +51,8 @@
 #define QRCODE_BASE_URL "https://espressif.github.io/esp-jumpstart/qrcode.html"
 
 static const char *_TAG = "CORE2AWS_WIFI";
+
+EventGroupHandle_t wifi_event_group = NULL;
 
 static esp_netif_t *_wifi_netif = NULL;
 static SemaphoreHandle_t _service_name_mutex;
@@ -145,7 +147,7 @@ static void _on_got_ip( void *arg, esp_event_base_t event_base, int32_t event_id
 
 static void _on_wifi_start( void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data )
 {
-    ESP_LOGI( _TAG, "\tStarting Wi-Fi... %d", event_id );
+    ESP_LOGI( _TAG, "\tStarting Wi-Fi... %ld", (long)event_id );
     xEventGroupSetBits( wifi_event_group, WIFI_DISCONNECTED_BIT );
     esp_wifi_connect();
 }
@@ -162,11 +164,11 @@ static void _on_wifi_disconnect( void *arg, esp_event_base_t event_base, int32_t
     xEventGroupSetBits( wifi_event_group, WIFI_DISCONNECTED_BIT );
 
     esp_err_t err = esp_wifi_connect();
-    if ( err == ESP_ERR_WIFI_NOT_STARTED )
+    if ( err != ESP_OK )
     {
+        ESP_LOGE( _TAG, "\tReconnect failed: 0x%x", err );
         return;
     }
-    ESP_ERROR_CHECK( err );
 
     xEventGroupSetBits( wifi_event_group, WIFI_CONNECTING_BIT );
 }
@@ -177,7 +179,7 @@ static void _device_service_name_set( void )
     const char *ssid_prefix = "CORE2FORAWS_";
     esp_wifi_get_mac( WIFI_IF_STA, eth_mac );
     
-    if (  xSemaphoreTake( _service_name_mutex, 40 ) == pdTRUE )
+    if ( xSemaphoreTake( _service_name_mutex, pdMS_TO_TICKS( 40 ) ) == pdTRUE )
     {
         snprintf( service_name, sizeof( service_name ), "%s%02X%02X%02X",
                 ssid_prefix, eth_mac[ 3 ], eth_mac[ 4 ], eth_mac[ 5 ] );
@@ -220,14 +222,14 @@ esp_err_t core2foraws_wifi_init( void )
     ESP_ERROR_CHECK( esp_event_loop_create_default() );
     wifi_event_group = xEventGroupCreate();
 
+    /* Initialize Wi-Fi including netif with default config */
+    _wifi_netif = esp_netif_create_default_wifi_sta();
+
     ESP_ERROR_CHECK( esp_event_handler_register( IP_EVENT, ESP_EVENT_ANY_ID, &_on_got_ip, NULL ) );
     ESP_ERROR_CHECK( esp_event_handler_register( WIFI_EVENT, WIFI_EVENT_STA_START, &_on_wifi_start, _wifi_netif ) );
     ESP_ERROR_CHECK( esp_event_handler_register( WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, &_on_wifi_connect, _wifi_netif ) );
     ESP_ERROR_CHECK( esp_event_handler_register( WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &_on_wifi_disconnect, NULL ) );
     ESP_ERROR_CHECK( esp_event_handler_register( WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, &_on_prov_event_handler, NULL ) );
-
-    /* Initialize Wi-Fi including netif with default config */
-    _wifi_netif = esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init( &cfg );
@@ -287,15 +289,21 @@ esp_err_t core2foraws_wifi_start( void )
             0xea, 0x4a, 0x82, 0x03, 0x04, 0x90, 0x1a, 0x02,
         };
         err = wifi_prov_scheme_ble_set_service_uuid( custom_service_uuid );
-        
-        err = xSemaphoreTake( _service_name_mutex, portMAX_DELAY );
-        if (  err == pdTRUE )
+        if ( err != ESP_OK )
         {
-            err = wifi_prov_mgr_start_provisioning( security, _get_pop(), service_name, service_key );
+            ESP_LOGE( _TAG, "\tFailed to set BLE service UUID: 0x%x", err );
+            return err;
+        }
+
+        if ( xSemaphoreTake( _service_name_mutex, portMAX_DELAY ) == pdTRUE )
+        {
+            char *pop = _get_pop();
+            err = wifi_prov_mgr_start_provisioning( security, pop, service_name, service_key );
+            free( pop );
             xSemaphoreGive( _service_name_mutex );
         }
         else
-            return err;
+            return ESP_ERR_TIMEOUT;
 
         /* Print QR code for provisioning */
         _wifi_prov_qr_print();
@@ -353,11 +361,13 @@ esp_err_t core2foraws_wifi_reset( void )
 esp_err_t core2foraws_wifi_prov_str_get( char *wifi_prov_str )
 {
     int err = -1;
-    if ( xSemaphoreTake( _service_name_mutex, 40 ) == pdTRUE )
-    {        
+    if ( xSemaphoreTake( _service_name_mutex, pdMS_TO_TICKS( 40 ) ) == pdTRUE )
+    {
+        char *pop = _get_pop();
         err = snprintf( wifi_prov_str, WIFI_PROV_STR_LEN, "{\"ver\":\"%s\",\"name\":\"%s\"" \
                     ",\"pop\":\"%s\",\"transport\":\"%s\"}",
-                    PROV_QR_VERSION, service_name, _get_pop(), PROV_TRANSPORT );
+                    PROV_QR_VERSION, service_name, pop, PROV_TRANSPORT );
+        free( pop );
         xSemaphoreGive( _service_name_mutex );
 
         if ( err > 0 )

@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,167 +23,261 @@
 
 /**
  * @file core2foraws_display.c
- * @brief Core2 for AWS IoT Kit display hardware driver APIs
+ * @brief Core2 for AWS IoT Kit display driver using esp_lcd + esp_lcd_touch + esp_lvgl_port
  */
 
-#include <driver/gpio.h>
-#include <esp_freertos_hooks.h>
-#include <esp_log.h>
-#include <esp_system.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "i2c_manager.h"
-#include "lvgl_helpers.h"
+#include <driver/gpio.h>
+#include <driver/spi_master.h>
+#include <esp_check.h>
+#include <esp_lcd_panel_io.h>
+#include <esp_lcd_panel_ops.h>
+#include <esp_lcd_ili9341.h>
+#include <esp_lcd_touch_ft5x06.h>
+#include <esp_log.h>
+#include <esp_heap_caps.h>
+#include <esp_lvgl_port.h>
 
 #include "core2foraws_common.h"
 #include "core2foraws_display.h"
 
-#define LV_TICK_PERIOD_MS 1
+/* ── Hardware constants (from schema.yml) ── */
 
-SemaphoreHandle_t core2foraws_common_spi_semaphore;
-TaskHandle_t core2foraws_display_task_handle;
-lv_disp_t *core2foraws_display_ptr;
+/* SPI bus shared with SD card (HSPI / SPI2) */
+#define LCD_SPI_HOST        SPI2_HOST
+
+/* ILI9342C display (ILI9341-compatible) */
+#define LCD_H_RES           320
+#define LCD_V_RES           240
+#define LCD_SPI_MOSI        GPIO_NUM_23
+#define LCD_SPI_MISO        GPIO_NUM_38
+#define LCD_SPI_SCLK        GPIO_NUM_18
+#define LCD_SPI_CS          GPIO_NUM_5
+#define LCD_DC              GPIO_NUM_15
+#define LCD_PIXEL_CLK_HZ    ( 40 * 1000 * 1000 )
+#define LCD_CMD_BITS        8
+#define LCD_PARAM_BITS      8
+#define LCD_DRAW_BUF_LINES  40
+
+/* FT6336U touch controller on internal I2C bus */
+#define TOUCH_INT_GPIO      GPIO_NUM_39
 
 static const char *_TAG = "CORE2FORAWS_DISPLAY";
-static lv_color_t *_buf1 = NULL;
-static lv_color_t *_buf2 = NULL;
 
-static void _lv_tick_task( void *arg );
-static void _gui_task( void *pvParameter );
+/* Handles exposed to consumers */
+lv_disp_t *core2foraws_display_ptr = NULL;
 
-static void _lv_tick_task( void *arg )
+/* Private handles */
+static esp_lcd_panel_io_handle_t _io_handle = NULL;
+static esp_lcd_panel_handle_t    _panel_handle = NULL;
+static esp_lcd_touch_handle_t    _touch_handle = NULL;
+static lv_indev_t               *_touch_indev = NULL;
+
+/**
+ * @brief Initialize the SPI bus shared between LCD and SD card.
+ *
+ * The bus is configured once; both esp_lcd and the SD card driver
+ * attach their own devices to it afterwards.
+ */
+static esp_err_t _init_spi_bus( void )
 {
-  (void)arg;
-  lv_tick_inc( LV_TICK_PERIOD_MS );
+    const spi_bus_config_t bus_cfg = {
+        .mosi_io_num   = LCD_SPI_MOSI,
+        .miso_io_num   = LCD_SPI_MISO,
+        .sclk_io_num   = LCD_SPI_SCLK,
+        .quadwp_io_num = GPIO_NUM_NC,
+        .quadhd_io_num = GPIO_NUM_NC,
+        .max_transfer_sz = LCD_H_RES * LCD_DRAW_BUF_LINES * sizeof( uint16_t ),
+    };
+
+    return spi_bus_initialize( LCD_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO );
 }
 
-static void _gui_task( void *pvParameter )
+/**
+ * @brief Create the esp_lcd panel IO and panel driver for the ILI9341.
+ */
+static esp_err_t _init_lcd_panel( void )
 {
+    const esp_lcd_panel_io_spi_config_t io_config = {
+        .dc_gpio_num       = LCD_DC,
+        .cs_gpio_num       = LCD_SPI_CS,
+        .pclk_hz           = LCD_PIXEL_CLK_HZ,
+        .lcd_cmd_bits      = LCD_CMD_BITS,
+        .lcd_param_bits    = LCD_PARAM_BITS,
+        .spi_mode          = 0,
+        .trans_queue_depth = 10,
+    };
 
-  (void)pvParameter;
-
-  while( 1 )
-  {
-    /* Delay 1 tick (assumes FreeRTOS tick is 10ms */
-    vTaskDelay( pdMS_TO_TICKS( 10 ) );
-
-    if( pdTRUE ==
-        xSemaphoreTake( core2foraws_common_spi_semaphore,
-                        pdMS_TO_TICKS( GUI_SPI_SEMAPHORE_TIMEOUT_MS ) ) )
+    esp_err_t err = esp_lcd_new_panel_io_spi(
+        ( esp_lcd_spi_bus_handle_t ) LCD_SPI_HOST, &io_config, &_io_handle );
+    if( err != ESP_OK )
     {
-      uint32_t ms_to_next_call = lv_task_handler();
-      ESP_LOGV( _TAG, "%dms until next LVGL timer call.", ms_to_next_call );
-      xSemaphoreGive( core2foraws_common_spi_semaphore );
+        return err;
     }
-    else
-    {
-      ESP_LOGW( _TAG, "Failed to acquire SPI semaphore for GUI update" );
-    }
-  }
 
-  free( _buf1 );
-  free( _buf2 );
-  vTaskDelete( NULL );
+    const esp_lcd_panel_dev_config_t panel_config = {
+        .reset_gpio_num  = GPIO_NUM_NC,
+        .rgb_ele_order   = LCD_RGB_ELEMENT_ORDER_BGR,
+        .bits_per_pixel  = 16,
+    };
+
+    err = esp_lcd_new_panel_ili9341( _io_handle, &panel_config, &_panel_handle );
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
+    ESP_RETURN_ON_ERROR( esp_lcd_panel_reset( _panel_handle ), _TAG, "panel reset" );
+    ESP_RETURN_ON_ERROR( esp_lcd_panel_init( _panel_handle ), _TAG, "panel init" );
+    ESP_RETURN_ON_ERROR( esp_lcd_panel_disp_on_off( _panel_handle, true ), _TAG, "disp on" );
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Create the esp_lcd_touch driver for the FT6336U (FT5x06-compatible).
+ */
+static esp_err_t _init_touch( void )
+{
+    esp_lcd_panel_io_handle_t touch_io_handle = NULL;
+    esp_lcd_panel_io_i2c_config_t io_config =
+        ESP_LCD_TOUCH_IO_I2C_FT5x06_CONFIG();
+    io_config.scl_speed_hz = 400000;
+
+    i2c_master_bus_handle_t i2c_bus = NULL;
+    esp_err_t err = core2foraws_i2c_get_bus_handle( COMMON_I2C_INTERNAL, &i2c_bus );
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
+    err = esp_lcd_new_panel_io_i2c_v2(
+        i2c_bus, &io_config, &touch_io_handle );
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
+    const esp_lcd_touch_config_t tp_cfg = {
+        .x_max = LCD_H_RES,
+        .y_max = LCD_V_RES,
+        .rst_gpio_num = GPIO_NUM_NC,
+        .int_gpio_num = TOUCH_INT_GPIO,
+        .levels = {
+            .reset     = 0,
+            .interrupt = 0,
+        },
+        .flags = {
+            .swap_xy  = 0,
+            .mirror_x = 0,
+            .mirror_y = 0,
+        },
+    };
+
+    return esp_lcd_touch_new_i2c_ft5x06( touch_io_handle, &tp_cfg,
+                                         &_touch_handle );
+}
+
+esp_lcd_touch_handle_t core2foraws_display_get_touch_handle( void )
+{
+    return _touch_handle;
 }
 
 esp_err_t core2foraws_display_init( void )
 {
-  ESP_LOGI( _TAG, "\tInitializing" );
+    ESP_LOGI( _TAG, "\tInitializing" );
 
-  esp_timer_handle_t periodic_timer;
-  esp_err_t err;
+    if( core2foraws_display_ptr != NULL )
+    {
+        ESP_LOGW( _TAG, "Display already initialized" );
+        return ESP_OK;
+    }
 
-  if( core2foraws_common_spi_semaphore == NULL )
-    core2foraws_common_spi_semaphore = xSemaphoreCreateMutex();
+    if( core2foraws_common_spi_semaphore == NULL )
+    {
+        core2foraws_common_spi_semaphore = xSemaphoreCreateMutex();
+        if( core2foraws_common_spi_semaphore == NULL )
+        {
+            ESP_LOGE( _TAG, "Failed to create shared SPI semaphore" );
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
-  lvgl_i2c_locking( i2c_manager_locking() );
+    /* ── 1. SPI bus (shared with SD card) ── */
+    esp_err_t err = _init_spi_bus();
+    if( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "SPI bus init failed: 0x%x", err );
+        return err;
+    }
 
-  xSemaphoreTake( core2foraws_common_spi_semaphore, pdMS_TO_TICKS( 80 ) );
+    /* ── 2. LCD panel via esp_lcd ── */
+    err = _init_lcd_panel();
+    if( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "LCD panel init failed: 0x%x", err );
+        return err;
+    }
 
-  lv_init();
+    /* ── 3. Touch via esp_lcd_touch ── */
+    err = _init_touch();
+    if( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "Touch init failed: 0x%x", err );
+        return err;
+    }
 
-  /* Initialize the needed peripherals */
-  lvgl_interface_init();
+    /* ── 4. LVGL port ── */
+    const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    err = lvgl_port_init( &lvgl_cfg );
+    if( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "LVGL port init failed: 0x%x", err );
+        return err;
+    }
 
-  /* Initialize needed GPIOs, e.g. backlight, reset GPIOs */
-  lvgl_display_gpios_init();
+    /* ── 5. Add display to LVGL port ── */
+    const lvgl_port_display_cfg_t disp_cfg = {
+        .io_handle     = _io_handle,
+        .panel_handle  = _panel_handle,
+        .buffer_size   = LCD_H_RES * LCD_DRAW_BUF_LINES,
+        .double_buffer = true,
+        .hres          = LCD_H_RES,
+        .vres          = LCD_V_RES,
+        .monochrome    = false,
+        .rotation = {
+            .swap_xy  = false,
+            .mirror_x = false,
+            .mirror_y = false,
+        },
+        .flags = {
+            .buff_dma    = true,
+        },
+    };
 
-  /* Use double buffered when not working with monochrome displays.
-   * Application should allocate two buffers buf1 and buf2 of size
-   * (DISP_BUF_SIZE * sizeof(lv_color_t)) each
-   */
+    core2foraws_display_ptr = lvgl_port_add_disp( &disp_cfg );
+    if( core2foraws_display_ptr == NULL )
+    {
+        ESP_LOGE( _TAG, "Failed to add display to LVGL port" );
+        return ESP_FAIL;
+    }
 
-  static lv_disp_buf_t disp_buf;
-  size_t display_buffer_size = lvgl_get_display_buffer_size();
-  _buf1 = heap_caps_malloc(
-      display_buffer_size * sizeof( lv_color_t ),
-      MALLOC_CAP_SPIRAM |
-          MALLOC_CAP_8BIT ); // Assuming max size of lv_color_t = 16bit, display
-                             // buffer size calculated from max horizontal
-                             // display size 480
-  _buf2 = heap_caps_malloc(
-      display_buffer_size * sizeof( lv_color_t ),
-      MALLOC_CAP_SPIRAM |
-          MALLOC_CAP_8BIT ); // Assuming max size of lv_color_t = 16bit, display
-                             // buffer size calculated from max horizontal
-                             // display size 480
-  assert( _buf1 != NULL );
-  assert( _buf2 != NULL );
+    /* ── 6. Add touch input to LVGL port ── */
+    const lvgl_port_touch_cfg_t touch_cfg = {
+        .disp   = core2foraws_display_ptr,
+        .handle = _touch_handle,
+    };
 
-  // Set up the frame buffers
-  uint32_t size_in_px = display_buffer_size;
-  lv_disp_buf_init( &disp_buf, _buf1, _buf2, size_in_px );
+    _touch_indev = lvgl_port_add_touch( &touch_cfg );
+    if( _touch_indev == NULL )
+    {
+        ESP_LOGW( _TAG, "Failed to add touch input" );
+    }
 
-  // Set up the display driver
-  lv_disp_drv_t disp_drv;
-  ili9341_init( &disp_drv );
-  lv_disp_drv_init( &disp_drv );
-  disp_drv.flush_cb = disp_driver_flush;
-  disp_drv.buffer = &disp_buf;
-  core2foraws_display_ptr = lv_disp_drv_register( &disp_drv );
-
-  /* Register an input device when enabled on the menuconfig */
-#if CONFIG_LV_TOUCH_CONTROLLER != TOUCH_CONTROLLER_NONE
-  lv_indev_drv_t indev_drv;
-  lv_indev_drv_init( &indev_drv );
-  indev_drv.read_cb = touch_driver_read;
-  indev_drv.type = LV_INDEV_TYPE_POINTER;
-  lv_indev_drv_register( &indev_drv );
-#endif
-
-  /* Create and start a periodic timer interrupt to call lv_tick_inc */
-  const esp_timer_create_args_t periodic_timer_args = {
-      .callback = &_lv_tick_task, .name = "periodic_gui" };
-
-  err = esp_timer_create( &periodic_timer_args, &periodic_timer );
-  if( err != ESP_OK )
-  {
-    ESP_LOGE( _TAG, "Error creating periodic ESP timer for LVGL" );
-    return err;
-  }
-
-  err = esp_timer_start_periodic( periodic_timer, LV_TICK_PERIOD_MS * 1000 );
-  if( err != ESP_OK )
-  {
-    ESP_LOGE( _TAG, "Error starting periodic ESP timer for LVGL" );
-    return err;
-  }
-
-  xSemaphoreGive( core2foraws_common_spi_semaphore );
-
-  /* If you want to use a task to create the graphic, you NEED to create a
-   * Pinned task Otherwise there can be problem such as memory corruption and so
-   * on. NOTE: If you're not using Wi-Fi or Bluetooth, you can pin the _gui_task
-   * to core 0 */
-  xTaskCreatePinnedToCore( _gui_task, "gui", GUI_TASK_STACK_SIZE, NULL,
-                           GUI_TASK_PRIORITY, &core2foraws_display_task_handle,
-                           1 );
-
-  return ESP_OK;
+    ESP_LOGI( _TAG, "\tDisplay initialized" );
+    return ESP_OK;
 }

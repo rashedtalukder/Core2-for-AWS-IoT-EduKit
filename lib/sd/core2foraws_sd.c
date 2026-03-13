@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -34,8 +34,6 @@
 #include "core2foraws_sd.h"
 #include "core2foraws_common.h"
 
-SemaphoreHandle_t core2foraws_common_spi_semaphore;
-
 static sdmmc_card_t* _sd_card;
 static const char *_mount_path = "/sd_card";
 static size_t _mount_path_len;
@@ -54,22 +52,24 @@ static const char *_TAG = "CORE2FORAWS_SD";
 #define SPI_HOST_USE HSPI_HOST
 /* @[declare_spi_host_use] */
 
-/**
- * @brief DMA channel for SPI bus
- *
- * This is the channel used by the SPI bus for the ILI9342C
- * display controller and TF/SD card slot.
- */
-/* @[declare_spi_dma_chan] */
-#define SPI_DMA_CHAN 2
-/* @[declare_spi_dma_chan] */
-
 esp_err_t core2foraws_sd_mount( void )
 {
     esp_err_t err = ESP_OK;
 
+    /* Already mounted — nothing to do. */
+    if( _sd_card != NULL )
+    {
+        return ESP_OK;
+    }
+
     if( core2foraws_common_spi_semaphore == NULL )
-	    core2foraws_common_spi_semaphore = xSemaphoreCreateMutex();
+    {
+        core2foraws_common_spi_semaphore = xSemaphoreCreateMutex();
+        if( core2foraws_common_spi_semaphore == NULL )
+        {
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
     _mount_path_len = strlen( _mount_path );
 
@@ -110,31 +110,62 @@ esp_err_t core2foraws_sd_mount( void )
 esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_read_length )
 {
     esp_err_t err = ESP_OK;
-    
-    
+    FILE *f = NULL;
+    char *path = NULL;
+    bool spi_locked = false;
+
+    if( file_name == NULL || message == NULL || to_read_length == 0 )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* The SD card must be mounted before reading. */
+    if( _sd_card == NULL )
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     const size_t file_name_len = strlen( file_name );
-    char *path = heap_caps_malloc( _mount_path_len + file_name_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT );
+    path = malloc( _mount_path_len + file_name_len + 1 );
+    if( path == NULL )
+    {
+        return ESP_ERR_NO_MEM;
+    }
+
     memcpy( path, _mount_path, _mount_path_len );
     memcpy( path + _mount_path_len, file_name, file_name_len + 1 );
     
     xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+    spi_locked = true;
     
-    FILE* f = fopen( path, "r" );
+    f = fopen( path, "r" );
     if ( f == NULL )
     {
         err = ESP_FAIL;
         ESP_LOGI( _TAG, "Failed to open SD card path %s", path );
-        return err;
+        goto cleanup;
     }
 
-    if ( fgets(message, to_read_length, f) == NULL )
+    size_t bytes_read = fread( message, 1, to_read_length - 1, f );
+    message[ bytes_read ] = '\0';
+
+    if( ferror( f ) )
     {
         err = ESP_FAIL;
         ESP_LOGI( _TAG, "Failed to read from SD card" );
     }
 
-    fclose(f);
-    xSemaphoreGive( core2foraws_common_spi_semaphore );
+cleanup:
+    if( f != NULL )
+    {
+        fclose( f );
+    }
+
+    if( spi_locked )
+    {
+        xSemaphoreGive( core2foraws_common_spi_semaphore );
+    }
+
     free( path );
     vTaskDelay( pdMS_TO_TICKS( SD_ACCESS_DELAY_MS ) );
 
@@ -144,19 +175,40 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
 esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size_t *wrote_length )
 {
     esp_err_t err = ESP_OK;
-    
+    FILE *f = NULL;
+    char *path = NULL;
+    bool spi_locked = false;
+
+    if( file_name == NULL || message == NULL || wrote_length == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* The SD card must be mounted before writing. */
+    if( _sd_card == NULL )
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     const size_t file_name_len = strlen( file_name );
-    char *path = heap_caps_malloc( _mount_path_len + file_name_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT );
+    path = malloc( _mount_path_len + file_name_len + 1 );
+    if( path == NULL )
+    {
+        return ESP_ERR_NO_MEM;
+    }
+
     memcpy( path, _mount_path, _mount_path_len );
     memcpy( path + _mount_path_len, file_name, file_name_len + 1 );
 
     xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+    spi_locked = true;
 
-    FILE* f = fopen(path, "w+");
+    f = fopen(path, "w");
     if (f == NULL) {
         err = ESP_FAIL;
         ESP_LOGD( _TAG, "Failed to open SD card" );
-        return err;
+        *wrote_length = 0;
+        goto cleanup;
     }
 
     int32_t wrote = fprintf(f, "%s", message);
@@ -171,8 +223,17 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
         *wrote_length = wrote;
     }
 
-    fclose(f);
-    xSemaphoreGive( core2foraws_common_spi_semaphore );
+cleanup:
+    if( f != NULL )
+    {
+        fclose( f );
+    }
+
+    if( spi_locked )
+    {
+        xSemaphoreGive( core2foraws_common_spi_semaphore );
+    }
+
     free( path );
     vTaskDelay( pdMS_TO_TICKS( SD_ACCESS_DELAY_MS ) );
 
@@ -183,6 +244,12 @@ esp_err_t core2foraws_sd_unmount( void )
 {
     esp_err_t err = ESP_FAIL;
 
+    /* Nothing to unmount if no card is mounted. */
+    if( _sd_card == NULL )
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
     err = esp_vfs_fat_sdcard_unmount( _mount_path, _sd_card );
     xSemaphoreGive( core2foraws_common_spi_semaphore );
@@ -190,10 +257,6 @@ esp_err_t core2foraws_sd_unmount( void )
     if ( err == ESP_OK )
     {
         _sd_card = NULL;
-
-#ifndef CONFIG_SOFTWARE_DISPLAY_SUPPORT
-        core2foraws_common_spi_semaphore = NULL;
-#endif
     }
 
     return err;

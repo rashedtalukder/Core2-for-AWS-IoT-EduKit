@@ -6,7 +6,7 @@
 
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -37,22 +37,45 @@
 #include <esp_log.h>
 
 #include "axp192.h"
-#include "i2c_manager.h"
 #include "core2foraws_common.h"
 #include "core2foraws_power.h"
 
-#define AXP_I2C	i2c_hal( COMMON_I2C_INTERNAL )
-
 static const char *_TAG = "CORE2FORAWS_POWER";
+
+static i2c_master_dev_handle_t _axp192_dev = NULL;
+
+static int32_t _axp192_i2c_read( void *handle, uint8_t address, uint8_t reg,
+                                  uint8_t *buffer, uint16_t size )
+{
+    (void)handle;
+    (void)address;
+    return ( int32_t )core2foraws_i2c_read( COMMON_I2C_INTERNAL, _axp192_dev,
+                                            ( uint32_t )reg, buffer, size );
+}
+
+static int32_t _axp192_i2c_write( void *handle, uint8_t address, uint8_t reg,
+                                   const uint8_t *buffer, uint16_t size )
+{
+    (void)handle;
+    (void)address;
+    return ( int32_t )core2foraws_i2c_write( COMMON_I2C_INTERNAL, _axp192_dev,
+                                             ( uint32_t )reg, buffer, size );
+}
+
+static const axp192_t _axp = {
+    .read = _axp192_i2c_read,
+    .write = _axp192_i2c_write,
+    .handle = NULL,
+};
 
 typedef struct 
 {
     uint16_t min_millivolts;
     uint16_t max_millivolts;
     uint16_t step_millivolts;
-    uint8_t vol_TAGe_reg;
-    uint8_t vol_TAGe_lsb;
-    uint8_t vol_TAGe_mask;
+    uint8_t voltage_reg;
+    uint8_t voltage_lsb;
+    uint8_t voltage_mask;
 } axp192_rail_cfg_t;
 
 static const axp192_rail_cfg_t _axp192_rail_configs[] = 
@@ -62,45 +85,45 @@ static const axp192_rail_cfg_t _axp192_rail_configs[] =
         .min_millivolts = 700,
         .max_millivolts = 3500,
         .step_millivolts = 25,
-        .vol_TAGe_reg = AXP192_DCDC1_VOLTAGE,
-        .vol_TAGe_lsb = 0,
-        .vol_TAGe_mask = (1 << 7) - 1,
+        .voltage_reg = AXP192_DCDC1_VOLTAGE,
+        .voltage_lsb = 0,
+        .voltage_mask = (1 << 7) - 1,
     },
     [ POWER_RAIL_DCDC2 ] =
     {
         .min_millivolts = 700,
         .max_millivolts = 2275,
         .step_millivolts = 25,
-        .vol_TAGe_reg = AXP192_DCDC2_VOLTAGE,
-        .vol_TAGe_lsb = 0,
-        .vol_TAGe_mask = (1 << 6) - 1,
+        .voltage_reg = AXP192_DCDC2_VOLTAGE,
+        .voltage_lsb = 0,
+        .voltage_mask = (1 << 6) - 1,
     },
     [ POWER_RAIL_DCDC3 ] =
     {
         .min_millivolts = 700,
         .max_millivolts = 3500,
         .step_millivolts = 25,
-        .vol_TAGe_reg = AXP192_DCDC3_VOLTAGE,
-        .vol_TAGe_lsb = 0,
-        .vol_TAGe_mask = (1 << 7) - 1,
+        .voltage_reg = AXP192_DCDC3_VOLTAGE,
+        .voltage_lsb = 0,
+        .voltage_mask = (1 << 7) - 1,
     },
     [ POWER_RAIL_LDO2 ] = 
     {
         .min_millivolts = 1800,
         .max_millivolts = 3300,
         .step_millivolts = 100,
-        .vol_TAGe_reg = AXP192_LDO23_VOLTAGE,
-        .vol_TAGe_lsb = 4,
-        .vol_TAGe_mask = 0xf0,
+        .voltage_reg = AXP192_LDO23_VOLTAGE,
+        .voltage_lsb = 4,
+        .voltage_mask = 0xf0,
     },
     [ POWER_RAIL_LDO3 ] = 
     {
         .min_millivolts = 1800,
         .max_millivolts = 3300,
         .step_millivolts = 100,
-        .vol_TAGe_reg = AXP192_LDO23_VOLTAGE,
-        .vol_TAGe_lsb = 0,
-        .vol_TAGe_mask = 0x0f,
+        .voltage_reg = AXP192_LDO23_VOLTAGE,
+        .voltage_lsb = 0,
+        .voltage_mask = 0x0f,
     },
 };
 
@@ -110,27 +133,51 @@ esp_err_t core2foraws_power_init( void )
 {
     ESP_LOGI( _TAG, "\tInitializing" );
 
-    // turn off everything except bit 2 and then turn bit 1 on
-    if ( core2foraws_power_axp_twiddle( AXP192_VBUS_IPSOUT_CHANNEL, 0b11111011, 0x02 ) == ESP_OK ) 
+    /* Register AXP192 device on the internal I2C bus */
+    if( _axp192_dev == NULL )
     {
-        ESP_LOGI(_TAG, "\tVbus limit off");
+        esp_err_t err = core2foraws_i2c_device_add( COMMON_I2C_INTERNAL,
+                                                     AXP192_ADDRESS, 100000,
+                                                     &_axp192_dev );
+        if( err != ESP_OK )
+        {
+            ESP_LOGE( _TAG, "Failed to add AXP192 I2C device: 0x%x", err );
+            return err;
+        }
     }
 
-    if ( core2foraws_power_axp_twiddle( AXP192_GPIO2_CONTROL, 0b00000111, 0x00 ) == ESP_OK &&
-        core2foraws_power_speaker_enable( false ) == ESP_OK ) 
+    /* Disable VBUS current limit, keep reserved bit 2 intact,
+       enable current limit mode at 100mA as a safety default. */
+    if ( core2foraws_power_axp_twiddle( AXP192_VBUS_IPSOUT_CHANNEL,
+            (uint8_t)~AXP192_STATUS_BAT_DIRECTION, /* preserve bit 2 */
+            AXP192_VBUS_CTL_CUR_LIMIT_EN ) == ESP_OK )
+    {
+        ESP_LOGI(_TAG, "\tVBUS current limit configured");
+    }
+
+    /* Set GPIO2 to NMOS open-drain output mode (bits[2:0]=0),
+       then pull speaker enable low to disable the amplifier. */
+    if ( core2foraws_power_axp_twiddle( AXP192_GPIO2_CONTROL, AXP192_GPIO_MODE_MASK, 0x00 ) == ESP_OK &&
+        core2foraws_power_speaker_enable( false ) == ESP_OK )
     {
         ESP_LOGI(_TAG, "\tSpeaker amplifier off");
     }
 
-    if ( core2foraws_power_axp_twiddle( AXP192_BATTERY_CHARGE_CONTROL, 0b11100011, 0b10100010 ) == ESP_OK ) 
+    /* Enable RTC backup battery charging at 3.0V, 200uA.
+       REG35H: bit7=enable, bits[6:5]=voltage, bits[1:0]=current */
+    if ( core2foraws_power_axp_twiddle( AXP192_BATTERY_CHARGE_CONTROL,
+            AXP192_BACKUP_CHG_ENABLE | AXP192_BACKUP_VOLT_MASK | AXP192_BACKUP_CUR_MASK,
+            AXP192_BACKUP_CHG_ENABLE
+            | (AXP192_BACKUP_VOLT_3V0 << AXP192_BACKUP_VOLT_SHIFT)
+            | (AXP192_BACKUP_CUR_200UA << AXP192_BACKUP_CUR_SHIFT) ) == ESP_OK )
     {
-        ESP_LOGI( _TAG, "\tRTC battery charging enabled (3v, 200uA)" );
+        ESP_LOGI( _TAG, "\tRTC battery charging enabled (3.0V, 200uA)" );
     }
 
     if ( core2foraws_power_rail_mv_set( POWER_RAIL_ESP32, 3350 ) == ESP_OK &&
-        core2foraws_power_rail_state_set( POWER_RAIL_ESP32, true ) == ESP_OK ) 
+        core2foraws_power_rail_state_set( POWER_RAIL_ESP32, true ) == ESP_OK )
     {
-        ESP_LOGI( _TAG, "\tESP32 power vol_TAGe set to 3.35v" );
+        ESP_LOGI( _TAG, "\tESP32 power voltage set to 3.35V" );
     }
 
     if ( core2foraws_power_backlight_set( DISPLAY_BACKLIGHT_START )  == ESP_OK ) 
@@ -139,37 +186,44 @@ esp_err_t core2foraws_power_init( void )
     }
 
     if ( core2foraws_power_rail_mv_set( POWER_RAIL_LOGIC_AND_SD, 3300 ) == ESP_OK &&
-        core2foraws_power_rail_state_set( POWER_RAIL_LOGIC_AND_SD, true ) == ESP_OK ) {
-        ESP_LOGI( _TAG, "\tDisplay logic and sdcard vol_TAGe set to 3.3v" );
+        core2foraws_power_rail_state_set( POWER_RAIL_LOGIC_AND_SD, true ) == ESP_OK )
+    {
+        ESP_LOGI( _TAG, "\tDisplay logic and SD card voltage set to 3.3V" );
     }
 
-    if ( core2foraws_power_rail_mv_set( POWER_RAIL_VIBRATOR, 2000) == ESP_OK ) {
-        ESP_LOGI( _TAG, "\tVibrator vol_TAGe preset to 2v" );
+    if ( core2foraws_power_rail_mv_set( POWER_RAIL_VIBRATOR, 2000) == ESP_OK )
+    {
+        ESP_LOGI( _TAG, "\tVibrator voltage preset to 2.0V" );
     }
 
-    if (core2foraws_power_axp_twiddle( AXP192_GPIO1_CONTROL, 0x07, 0x00 ) == ESP_OK &&
-        core2foraws_power_led_enable( true ) == ESP_OK ) 
+    /* Set GPIO1 to NMOS open-drain output mode for green LED control. */
+    if (core2foraws_power_axp_twiddle( AXP192_GPIO1_CONTROL, AXP192_GPIO_MODE_MASK, 0x00 ) == ESP_OK &&
+        core2foraws_power_led_enable( true ) == ESP_OK )
     {
         ESP_LOGI( _TAG, "\tGreen LED on" );
     }
 
-    if (core2foraws_power_axp_twiddle( AXP192_CHARGE_CONTROL_1, 0x0f, 0x00 ) == ESP_OK ) 
+    /* Set charge current to 100mA (bits[3:0] = 0 = lowest setting). */
+    if (core2foraws_power_axp_twiddle( AXP192_CHARGE_CONTROL_1, AXP192_CHG1_CURRENT_MASK, 0x00 ) == ESP_OK )
     {
         ESP_LOGI( _TAG, "\tCharge current set to 100 mA" );
     }
 
 	float volts;
-	if (core2foraws_power_axp_read( AXP192_BATTERY_VOLTAGE, &volts ) == ESP_OK) 
+	if (core2foraws_power_axp_read( AXP192_BATTERY_VOLTAGE, &volts ) == ESP_OK)
     {
-		ESP_LOGI( _TAG, "\tBattery vol_TAGe now: %.2f volts", volts );
+		ESP_LOGI( _TAG, "\tBattery voltage now: %.2f volts", volts );
     }
 
-    if ( core2foraws_power_axp_twiddle( AXP192_PEK, 0xff, 0x4c ) == ESP_OK ) 
+    /* PEK (power key) config: 0x4c = 128ms startup, 4s long-press shutdown,
+       1s shutdown delay, power-key auto-shutdown enabled. */
+    if ( core2foraws_power_axp_twiddle( AXP192_PEK, 0xff, 0x4c ) == ESP_OK )
     {
     	ESP_LOGI( _TAG, "\tPower key set, 4 seconds for hard shutdown" );
     }
 
-    if ( core2foraws_power_axp_twiddle( AXP192_ADC_ENABLE_1, 0x00, 0xff ) == ESP_OK ) 
+    /* Enable all ADC channels: battery, ACIN, VBUS, APS, TS voltages & currents. */
+    if ( core2foraws_power_axp_twiddle( AXP192_ADC_ENABLE_1, 0xff, 0xff ) == ESP_OK )
     {
     	ESP_LOGI( _TAG, "\tEnabled all ADC channels" );
     }
@@ -179,10 +233,16 @@ esp_err_t core2foraws_power_init( void )
     	ESP_LOGI( _TAG, "\tUSB / battery powered, 5V bus on" );
     }
 	
-	// GPIO4 is reset for LCD and touch
-	core2foraws_power_axp_twiddle( AXP192_GPIO43_FUNCTION_CONTROL, ~0x72, 0x84 );
+	/* Configure GPIO4 as NMOS open-drain for LCD/touch reset control.
+	   REG95H: bit7 = GPIO3/4 function enable, bits[3:2] = GPIO4 mode.
+	   0x84 = enable GPIO3/4 functions, GPIO4 = NMOS output. */
+	core2foraws_power_axp_twiddle( AXP192_GPIO43_FUNCTION_CONTROL, (uint8_t)~0x72, 0x84 );
+
+    /* Pull GPIO4 low to reset display and touch controller. */
     core2foraws_power_axp_twiddle( AXP192_GPIO43_SIGNAL_STATUS, 0x02, 0x00 );
     vTaskDelay( pdMS_TO_TICKS ( 100 ) );
+
+    /* Release reset by pulling GPIO4 high. */
     if ( core2foraws_power_axp_twiddle( AXP192_GPIO43_SIGNAL_STATUS, 0x02, 0x02 ) == ESP_OK )
     {
     	ESP_LOGI( _TAG, "\tDisplay and touch reset" );
@@ -208,34 +268,55 @@ static esp_err_t _core2foraws_power_int_5v_enable( bool state )
 
 	if ( state )
     {
-		ret |= core2foraws_power_axp_twiddle( AXP192_GPIO0_LDOIO0_VOLTAGE, 0xf0, 0xf0 );
-		ret |= core2foraws_power_axp_twiddle( AXP192_GPIO0_CONTROL, 0x07, 0x02 );
-		ret |= core2foraws_power_rail_state_set( POWER_RAIL_EXTEN, true );
+		ret = core2foraws_power_axp_twiddle( AXP192_GPIO0_LDOIO0_VOLTAGE, 0xf0, 0xf0 );
+		if ( ret != ESP_OK )
+        {
+			return ret;
+        }
+
+		ret = core2foraws_power_axp_twiddle( AXP192_GPIO0_CONTROL, 0x07, 0x02 );
+		if ( ret != ESP_OK )
+        {
+			return ret;
+        }
+
+		ret = core2foraws_power_rail_state_set( POWER_RAIL_EXTEN, true );
 	} 
     else
     {
-		ret |= core2foraws_power_rail_state_set( POWER_RAIL_EXTEN, false );
-		ret |= core2foraws_power_axp_twiddle( AXP192_GPIO0_CONTROL, 0x07, 0x01 );
+		ret = core2foraws_power_rail_state_set( POWER_RAIL_EXTEN, false );
+		if ( ret != ESP_OK )
+        {
+			return ret;
+        }
+
+		ret = core2foraws_power_axp_twiddle( AXP192_GPIO0_CONTROL, 0x07, 0x01 );
 	}
 	return ret;
 }
 
 esp_err_t core2foraws_power_backlight_set( uint8_t brightness )
 {
-    esp_err_t err = ESP_OK;
-
     if ( brightness > 100 )
     {
         brightness = 100;
     }
 
+    if ( brightness == 0 )
+    {
+        return core2foraws_power_rail_state_set( POWER_RAIL_DISPLAY_BACKLIGHT, false );
+    }
+
     uint16_t volts = ( uint32_t )brightness * ( DISPLAY_BACKLIGHT_MAX_VOLTS - DISPLAY_BACKLIGHT_MIN_VOLTS ) / 100 + DISPLAY_BACKLIGHT_MIN_VOLTS;
-    ESP_LOGD( _TAG, "\tDISPLAY VOL_TAGE %d", volts );
+    ESP_LOGD( _TAG, "\tDisplay backlight voltage: %d mV", volts );
 
-    err |= core2foraws_power_rail_mv_set( POWER_RAIL_DISPLAY_BACKLIGHT, volts );
-    err |= core2foraws_power_rail_state_set( POWER_RAIL_DISPLAY_BACKLIGHT, true );
+    esp_err_t err = core2foraws_power_rail_mv_set( POWER_RAIL_DISPLAY_BACKLIGHT, volts );
+    if ( err != ESP_OK )
+    {
+        return err;
+    }
 
-    return err;
+    return core2foraws_power_rail_state_set( POWER_RAIL_DISPLAY_BACKLIGHT, true );
 }
 
 esp_err_t core2foraws_power_led_enable( bool state )
@@ -255,73 +336,101 @@ esp_err_t core2foraws_power_speaker_enable( bool state )
 
 esp_err_t core2foraws_power_batt_volts_get( float *volts )
 {
-    axp192_t *ptr = ( axp192_t * )AXP_I2C;
-    return axp192_read( ptr, AXP192_BATTERY_VOLTAGE, ( void * ) volts );
+    if ( volts == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return core2foraws_common_error( axp192_read( &_axp, AXP192_BATTERY_VOLTAGE, ( void * ) volts ) );
 }
 
 esp_err_t core2foraws_power_batt_current_get( float *m_amps )
 {
-    esp_err_t ret = ESP_OK;
-    axp192_t *ptr = ( axp192_t * )AXP_I2C;
+    if ( m_amps == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     float current_in, current_out = 0.00;
 
-    ret |= axp192_read( ptr, AXP192_CHARGE_CURRENT, ( void * ) &current_in );
-    ret |= axp192_read( ptr, AXP192_DISCHARGE_CURRENT, ( void * ) &current_out );
+    esp_err_t ret = axp192_read( &_axp, AXP192_CHARGE_CURRENT, ( void * ) &current_in );
+    if ( ret != ESP_OK )
+    {
+        return core2foraws_common_error( ret );
+    }
 
-    *m_amps = ( current_in - current_out );
+    ret = axp192_read( &_axp, AXP192_DISCHARGE_CURRENT, ( void * ) &current_out );
+    if ( ret != ESP_OK )
+    {
+        return core2foraws_common_error( ret );
+    }
 
-    return core2foraws_common_error( ret );
+    /* axp192_read_adc returns current in amps; convert to milliamps. */
+    *m_amps = ( current_in - current_out ) * 1000.0f;
+
+    return ESP_OK;
 }
 
 esp_err_t core2foraws_power_charging_get( bool *status )
 {
-    esp_err_t ret = ESP_OK;
-    uint8_t reg_val = 0x00;
-    axp192_t *ptr = ( axp192_t * )AXP_I2C;
+    if ( status == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    ret |= axp192_read( ptr, AXP192_CHARGE_STATUS, ( void * ) &reg_val );
+    uint8_t reg_val = 0x00;
+
+    esp_err_t ret = axp192_read( &_axp, AXP192_CHARGE_STATUS, ( void * ) &reg_val );
+    if ( ret != ESP_OK )
+    {
+        return core2foraws_common_error( ret );
+    }
 
     *status = ( ( reg_val >> 6 ) & 1U );
 
-    return ret;
+    return ESP_OK;
 }
 
 esp_err_t core2foraws_power_plugged_get( bool *status )
 {
-    esp_err_t ret = ESP_OK;
-    uint8_t reg_val = 0x00;
-    axp192_t *ptr = ( axp192_t * )AXP_I2C;
+    if ( status == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    ret |= axp192_read( ptr, AXP192_POWER_STATUS, ( void * ) &reg_val );
+    uint8_t reg_val = 0x00;
+
+    esp_err_t ret = axp192_read( &_axp, AXP192_POWER_STATUS, ( void * ) &reg_val );
+    if ( ret != ESP_OK )
+    {
+        return core2foraws_common_error( ret );
+    }
 
     *status = ( ( reg_val >> 7 ) & 1U );
 
-    return ret;
+    return ESP_OK;
 }
 
 esp_err_t core2foraws_power_axp_reg_get( uint8_t reg, uint8_t *buffer )
 {
-	axp192_t *ptr = ( axp192_t * )AXP_I2C;
-	return ptr->read(ptr->handle, AXP192_ADDRESS, reg, ( void * )buffer, 1);
+	return core2foraws_i2c_read( COMMON_I2C_INTERNAL, _axp192_dev,
+	                            ( uint32_t )reg, buffer, 1 );
 }
 
 esp_err_t core2foraws_power_axp_reg_set( uint8_t reg, uint8_t value )
 {
-	axp192_t *ptr = ( axp192_t * )AXP_I2C;
-	uint8_t buffer = value;
-	return ptr->write( ptr->handle, AXP192_ADDRESS, reg, &buffer, 1 );
+	return core2foraws_i2c_write( COMMON_I2C_INTERNAL, _axp192_dev,
+	                             ( uint32_t )reg, &value, 1 );
 }
 
 esp_err_t core2foraws_power_axp_read( uint8_t reg, void *buffer )
 {
-	axp192_t *ptr = ( axp192_t * )AXP_I2C;
-	return axp192_read( ptr, reg, buffer );
+	return axp192_read( &_axp, reg, buffer );
 }
 
 esp_err_t core2foraws_power_axp_write( uint8_t reg, const uint8_t *buffer )
 {
-	axp192_t *ptr = ( axp192_t * )AXP_I2C;
-	return axp192_write( ptr, reg, buffer );
+	return axp192_write( &_axp, reg, buffer );
 }
 
 esp_err_t core2foraws_power_axp_twiddle( uint8_t reg, uint8_t affect, uint8_t value )
@@ -340,6 +449,11 @@ esp_err_t core2foraws_power_axp_twiddle( uint8_t reg, uint8_t affect, uint8_t va
 
 esp_err_t core2foraws_power_rail_state_get( power_rail_t rail, bool *enabled )
 {
+    if ( enabled == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     esp_err_t ret;
     uint8_t val;
 
@@ -432,6 +546,11 @@ esp_err_t core2foraws_power_rail_state_set( power_rail_t rail, bool enabled )
 
 esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts )
 {
+    if ( millivolts == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     esp_err_t ret;
     uint8_t val;
 
@@ -444,12 +563,12 @@ esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts
         return ESP_ERR_INVALID_ARG;
     }
 
-    ret = core2foraws_power_axp_reg_get( cfg->vol_TAGe_reg, &val );
+    ret = core2foraws_power_axp_reg_get( cfg->voltage_reg, &val );
     if ( ret != ESP_OK ) {
         return ret;
     }
 
-    val = ( val & cfg->vol_TAGe_mask ) >> cfg->vol_TAGe_lsb;
+    val = ( val & cfg->voltage_mask ) >> cfg->voltage_lsb;
 
     *millivolts = cfg->min_millivolts + cfg->step_millivolts * val;
 
@@ -478,16 +597,21 @@ esp_err_t core2foraws_power_rail_mv_set( power_rail_t rail, uint16_t millivolts 
         return ESP_ERR_INVALID_ARG;
     }
 
-    ret = core2foraws_power_axp_reg_get(cfg->vol_TAGe_reg, &val);
+    if ( ( ( millivolts - cfg->min_millivolts ) % cfg->step_millivolts ) != 0 )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ret = core2foraws_power_axp_reg_get( cfg->voltage_reg, &val );
     if (ret != ESP_OK)
     {
         return ret;
     }
 
     steps = ( millivolts - cfg->min_millivolts ) / cfg->step_millivolts;
-    val = ( val & ~( cfg->vol_TAGe_mask ) ) | ( steps << cfg->vol_TAGe_lsb );
+    val = ( val & ~( cfg->voltage_mask ) ) | ( steps << cfg->voltage_lsb );
 
-    ret = core2foraws_power_axp_reg_set( cfg->vol_TAGe_reg, val );
+    ret = core2foraws_power_axp_reg_set( cfg->voltage_reg, val );
     if ( ret != ESP_OK )
     {
         return ret;

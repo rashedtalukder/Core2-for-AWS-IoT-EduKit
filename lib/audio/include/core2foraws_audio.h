@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -35,7 +35,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <driver/i2s.h>
+#include <hal/i2s_types.h>
 #include <esp_err.h>
 
 /**
@@ -65,6 +65,8 @@ extern "C" {
  * @note The speaker cannot be enabled at the same time as the 
  * microphone since they both share a common pin (GPIO0). Attempting 
  * to enable and use both at the same time will return an error.
+ * Call this once with `true` before writing audio, then call it again
+ * with `false` when you are done.
  *
  * @param[in] state Desired state of the speaker. 1 to enable, 0 to 
  * disable.
@@ -123,10 +125,18 @@ esp_err_t core2foraws_audio_mic_enable( bool state );
  *      ESP_LOGI( TAG, "\tStarting..." );
  *      core2foraws_init();
  * 
- *      core2foraws_audio_speaker_enable( true );
- *      const unsigned char sound[16] = [0x01,0x00,0xff,0xff,0x01,0x00,0xff,0xff,0x01,0x00,0xff,0xff,0xff,0xff,0xff,0xff];
- *      core2foraws_audio_speaker_write( ( const uint8_t * )sound, 16 );
- *      core2foraws_audio_speaker_enable( false );
+ *      if ( core2foraws_audio_speaker_enable( true ) == ESP_OK )
+ *      {
+ *          const uint8_t sound[16] = {
+ *              0x01, 0x00, 0xff, 0xff,
+ *              0x01, 0x00, 0xff, 0xff,
+ *              0x01, 0x00, 0xff, 0xff,
+ *              0xff, 0xff, 0xff, 0xff
+ *          };
+ *
+ *          core2foraws_audio_speaker_write( sound, sizeof( sound ) );
+ *          core2foraws_audio_speaker_enable( false );
+ *      }
  *  }
  * @endcode
  * 
@@ -142,11 +152,13 @@ esp_err_t core2foraws_audio_speaker_write( const uint8_t *sound_buffer, size_t t
 /* @[declare_core2foraws_audio_speaker_write] */
 
 /**
- * @brief Writes audio to the provided buffer from the microphone.
+ * @brief Reads audio from the microphone into the provided buffer.
  * 
  * @note The microphone cannot be enabled at the same time as the 
  * speaker since they both share a common pin (GPIO0). Attempting to 
  * enable and use both at the same time will return an error.
+ * Call this once with `true` before reading audio, then call it again
+ * with `false` when you are done.
  * 
  * **Example:**
  * 
@@ -170,16 +182,21 @@ esp_err_t core2foraws_audio_speaker_write( const uint8_t *sound_buffer, size_t t
  *      if ( err == ESP_OK )
  *      {
  *          int8_t *mic_buffer = ( int8_t * )heap_caps_malloc( read_length * sizeof( int8_t ), MALLOC_CAP_SPIRAM );
- *          size_t was_read_length;
- *          esp_err_t err = core2foraws_audio_mic_read( mic_buffer, read_length, &was_read_length );
- *          if ( err == ESP_OK )
- *              ESP_LOGI( TAG, "\tRead %d bytes from mic!", was_read_length );
+ *          size_t was_read_length = 0;
+ *
+ *          if ( mic_buffer != NULL )
+ *          {
+ *              err = core2foraws_audio_mic_read( mic_buffer, read_length, &was_read_length );
+ *              if ( err == ESP_OK )
+ *                  ESP_LOGI( TAG, "\tRead %d bytes from mic!", was_read_length );
+ *          }
+ *
  *          core2foraws_audio_mic_enable( false );
  *
  *          err = core2foraws_audio_speaker_enable( true );
- *          if (err == ESP_OK )
+ *          if ( err == ESP_OK && mic_buffer != NULL )
  *          {
- *              err = core2foraws_audio_speaker_write( ( uint8_t * )mic_buffer, was_read_length );
+ *              err = core2foraws_audio_speaker_write( ( const uint8_t * ) mic_buffer, was_read_length );
  *              if ( err == ESP_OK )
  *                  ESP_LOGI( TAG, "\tWrote %d bytes to the speaker!", was_read_length );
  *              core2foraws_audio_speaker_enable( false );

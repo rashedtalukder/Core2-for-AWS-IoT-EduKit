@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -37,25 +37,27 @@ extern "C" {
 #include <freertos/semphr.h>
 #include <esp_err.h>
 
+#include "core2foraws_i2c.h"
+
 /**
  * @brief The port used by the internal I2C peripherals.
  */
 /* @[declare_core2foraws_common_i2c_internal] */
-#define COMMON_I2C_INTERNAL I2C_NUM_0
+#define COMMON_I2C_INTERNAL CORE2FORAWS_I2C_INTERNAL
 /* @[declare_core2foraws_common_i2c_internal] */
 
 /**
  * @brief The port used by the external I2C peripherals.
  */
 /* @[declare_core2foraws_common_i2c_external] */
-#define COMMON_I2C_EXTERNAL I2C_NUM_1
+#define COMMON_I2C_EXTERNAL CORE2FORAWS_I2C_EXTERNAL
 /* @[declare_core2foraws_common_i2c_external] */
 
 /**
  * @brief The port used by the I2S peripherals (speaker & microphone).
  */
 /* @[declare_core2foraws_common_i2s_internal] */
-#define COMMON_I2S_INTERNAL I2S_NUM_0
+#define COMMON_I2S_INTERNAL 0
 /* @[declare_core2foraws_common_i2s_internal] */
 
 /**
@@ -108,7 +110,7 @@ extern SemaphoreHandle_t core2foraws_common_spi_semaphore;
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros). 0 or `ESP_OK` if successful.
  */
 /* @[declare_core2foraws_common_error] */
-esp_err_t core2foraws_common_error( int8_t error_code );
+esp_err_t core2foraws_common_error( int32_t error_code );
 /* @[declare_core2foraws_common_error] */
 
 #ifdef __cplusplus

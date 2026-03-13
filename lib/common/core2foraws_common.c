@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -26,21 +26,18 @@
  */
 
 #include <stdint.h>
+#include <inttypes.h>
 #include <esp_log.h>
 
 #include "core2foraws_common.h"
 
+SemaphoreHandle_t core2foraws_common_spi_semaphore = NULL;
+
 static const char *_TAG = "CORE2FORAWS_COMMON";
 
-esp_err_t core2foraws_common_error( int8_t error_code )
+esp_err_t core2foraws_common_error( int32_t error_code )
 {
-    esp_err_t ret = ESP_OK;
+    ESP_LOGV( _TAG, "Original error code: %" PRId32, error_code );
 
-    ESP_LOGV( _TAG, "Original error code: %d", error_code );
-    
-    if ( error_code != 0 )
-    {
-        ret = ESP_FAIL;
-    }
-    return ret;
+    return ( error_code == 0 ) ? ESP_OK : ESP_FAIL;
 }

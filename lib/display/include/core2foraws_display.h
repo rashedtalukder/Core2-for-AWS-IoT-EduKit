@@ -1,6 +1,6 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -35,136 +35,38 @@ extern "C"
 #endif
 
 #include <esp_err.h>
+#include <esp_lcd_touch.h>
+#include <esp_lvgl_port.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
-#include <freertos/task.h>
 #include <stdint.h>
 
 #include "lvgl.h"
 
-#ifdef CONFIG_SOFTWARE_WIFI_SUPPORT
-#include "lv_qrcode.h"
-#endif
-
-/**
- * @brief Timeout value for GUI SPI semaphore in milliseconds.
- *
- * The maximum time in milliseconds that a task will wait to obtain the GUI SPI
- * semaphore before timing out.
- */
-/* @[declare_core2foraws_display_gui_spi_semaphore_timeout_ms] */
-#define GUI_SPI_SEMAPHORE_TIMEOUT_MS 100
-/* @[declare_core2foraws_display_gui_spi_semaphore_timeout_ms] */
-
-/**
- * @brief Defines the stack size for the GUI task.
- *
- */
-/* @[declare_core2foraws_display_gui_task_stack_size] */
-#define GUI_TASK_STACK_SIZE ( configMINIMAL_STACK_SIZE * 8 )
-/* @[declare_core2foraws_display_gui_task_stack_size] */
-
-/**
- * @brief Priority level for the GUI task
- *
- * The priority level for the GUI task in the FreeRTOS scheduler.
- * The higher the number, the higher the priority of the task.
- * A priority of 4 represents a relatively moderate priority in the system.
- */
-/* @[declare_core2foraws_display_gui_task_priority] */
-#define GUI_TASK_PRIORITY 4
-  /* @[declare_core2foraws_display_gui_task_priority] */
-
-  /**
-   * @brief FreeRTOS task handle for the LVGL guiTask.
-   *
-   * This is the task handle that can be used to control the display's
-   * FreeRTOS task using one of the [FreeRTOS task
-   * control](https://www.freertos.org/a00112.html) functions.
-   *
-   * **Example:**
-   *
-   * Increase the task priority of the guiTask to improve the
-   * screen write and touch input performance.
-   * @code{c}
-   *  #include <freertos/FreeRTOS.h>
-   *  #include <freertos/task.h>
-   *
-   *  #include "core2foraws.h"
-   *
-   *  void app_main( void )
-   *  {
-   *      core2foraws_init();
-   *
-   *      UBaseType_t gui_task_priorty = uxTaskPriorityGet(
-   * core2foraws_display_task_handle );
-   *
-   *      vTaskPrioritySet( core2foraws_display_task_handle, gui_task_priorty +
-   * 1 );
-   *  }
-   *
-   * @endcode
-   */
-  /* @[declare_core2foraws_display_task_handle] */
-  extern TaskHandle_t core2foraws_display_task_handle;
-  /* @[declare_core2foraws_display_task_handle] */
-
   /**
    * @brief Pointer to the registered LVGL display struct.
-   *
-   * This is the pointer to the LVGL display and can be used to directly
-   * get or modify the display parameters at runtime.
-   *
-   * For more details, visit the [LVGL
-   * docs](https://docs.lvgl.io/8.0/porting/display.html) regarding the display
-   * interface and other available APIs.
-   *
-   * **Example:**
-   *
-   * Create a LVGL label widget, set the text of the label to "Hello
-   * World!", and align the label to the center of the screen. After
-   * 1 second, rotate the display 180 degrees.
-   * @code{c}
-   *  #include <freertos/FreeRTOS.h>
-   *  #include <freertos/task.h>
-   *
-   *  #include "core2foraws.h"
-   *
-   *  void app_main( void )
-   *  {
-   *      core2foraws_init();
-   *
-   *      xSemaphoreTake( core2foraws_common_spi_semaphore, pdMS_TO_TICKS( 40 )
-   * );
-   *
-   *      lv_obj_t * main_screen = lv_scr_act();
-   *      lv_obj_t * hello_label = lv_label_create( main_screen, NULL );
-   *      lv_label_set_text_static( hello_label, "Hello World!" );
-   *      lv_obj_align( hello_label, NULL, LV_ALIGN_CENTER, 0, 0 );
-   *
-   *      xSemaphoreGive( core2foraws_common_spi_semaphore );
-   *
-   *      vTaskDelay( pdMS_TO_TICKS( 1000 ) );
-   *
-   *      xSemaphoreTake( core2foraws_common_spi_semaphore, pdMS_TO_TICKS( 80 )
-   * ); lv_disp_set_rotation( core2foraws_display_ptr, LV_DISP_ROT_180 );
-   *      xSemaphoreGive( core2foraws_common_spi_semaphore );
-   *  }
-   *
-   * @endcode
-   *
    */
   /* @[declare_core2foraws_display_ptr] */
   extern lv_disp_t *core2foraws_display_ptr;
   /* @[declare_core2foraws_display_ptr] */
 
   /**
+   * @brief Handle to the esp_lcd_touch driver for the FT6336U.
+   *
+   * Can be used by other subsystems (e.g. virtual buttons) to read raw
+   * touch coordinates from the capacitive touch panel.
+   */
+  /* @[declare_core2foraws_display_touch_handle] */
+  esp_lcd_touch_handle_t core2foraws_display_get_touch_handle( void );
+  /* @[declare_core2foraws_display_touch_handle] */
+
+  /**
    * @brief Initializes the display controller and touch driver.
    *
-   * Wraps the [LVGL](https://lvgl.io/) and
-   * [LVGL_ESP32_Driver](https://github.com/lvgl/lvgl_esp32_drivers) libraries
-   * to initialize the ILI9342C display controller and FT6336U touch driver on
-   * the SPI bus.
+   * Uses esp_lcd to drive the ILI9342C display via SPI, esp_lcd_touch for
+   * the FT6336U capacitive touch controller over I2C, and esp_lvgl_port to
+   * integrate both with the LVGL graphics library.
+   *
    * @note The core2foraws_init() calls this function
    * when the hardware feature is enabled.
    *

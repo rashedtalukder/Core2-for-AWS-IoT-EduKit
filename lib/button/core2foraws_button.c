@@ -1,23 +1,24 @@
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
 /**
@@ -25,166 +26,352 @@
  * @brief Core2 for AWS IoT Kit virtual button hardware driver APIs
  */
 
-#include <stdint.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <sdkconfig.h>
+#include <freertos/task.h>
+#include <stdint.h>
 
-#include "core2foraws_common.h"
 #include "core2foraws_button.h"
+#include "core2foraws_common.h"
+#include "core2foraws_display.h"
 
-#include "lvgl_touch/ft6x36.h"
+#ifndef CONFIG_CORE2FORAWS_BUTTON_DEBOUNCE_MS
+#define CONFIG_CORE2FORAWS_BUTTON_DEBOUNCE_MS 30
+#endif
+
+#define TOUCH_BUTTON_COUNT                                                      \
+  ( sizeof( _touch_buttons ) / sizeof( _touch_buttons[ 0 ] ) )
+#define BUTTON_DEBOUNCE_TICKS                                                   \
+  pdMS_TO_TICKS( CONFIG_CORE2FORAWS_BUTTON_DEBOUNCE_MS )
 
 static SemaphoreHandle_t _button_mutex;
+static TaskHandle_t _button_task_handle = NULL;
 
 static const char *_TAG = "CORE2FORAWS_BUTTON";
 
-struct 
+typedef struct
 {
-    const uint16_t x;                   /**< @brief Virtual button touch starting point in the X-coordinate plane. */
-    const uint16_t y;                   /**< @brief Virtual button touch starting point in the Y-coordinate plane */
-    const uint16_t w;                   /**< @brief Virtual button touched width from the starting point in the X-coordinate plane. */
-    const uint16_t h;                   /**< @brief Virtual button touched height from the starting point in the y-coordinate plane. */
-    bool is_touched;                    /**< @brief Current virtual button touched state */
-    bool last_touched;                  /**< @brief Previous virtual button touched state */
-    uint32_t last_press_time;           /**< @brief FreeRTOS ticks when virtual button was last touched */
-    uint32_t long_press_time;           /**< @brief Number of FreeRTOS ticks to elapse to consider holding the touch button a long press */
-    press_event_t state;                /**< @brief The button press event */
-    enum core2foraws_button_btns id;    /**< @brief The id of the button from the enumerated list */
-} static _touch_buttons[] = 
-{
-    { 10, 241, 86, 38, false, false, 0, 0, 0, BUTTON_LEFT },
-    { 117, 241, 86, 38, false, false, 0, 0, 0, BUTTON_MIDDLE },
-    { 224, 241, 86, 38, false, false, 0, 0, 0, BUTTON_RIGHT }
-};
+  button_event_cb_t press_cb;
+  button_event_cb_t release_cb;
+  button_event_cb_t longpress_cb;
+} button_callbacks_t;
 
-#if CONFIG_LV_FT6X36_COORDINATES_QUEUE
+struct
+{
+  const uint16_t x;  /**< @brief Virtual button touch starting point in the
+                        X-coordinate plane. */
+  const uint16_t y;  /**< @brief Virtual button touch starting point in the
+                        Y-coordinate plane */
+  const uint16_t w;  /**< @brief Virtual button touched width from the starting
+                        point in the X-coordinate plane. */
+  const uint16_t h;  /**< @brief Virtual button touched height from the starting
+                        point in the y-coordinate plane. */
+  bool is_touched;   /**< @brief Current debounced touched state */
+  bool last_touched; /**< @brief Most recent raw touched state */
+  bool longpress_reported; /**< @brief True after long press callback fires */
+  uint32_t debounce_start_time; /**< @brief FreeRTOS ticks when the raw touch
+                                   state last changed */
+  uint32_t last_press_time; /**< @brief FreeRTOS ticks when virtual button was
+                               last touched */
+  uint32_t long_press_time; /**< @brief Number of FreeRTOS ticks to elapse to
+                               consider holding the touch button a long press */
+  press_event_t state;      /**< @brief The button press event */
+  enum core2foraws_button_btns
+      id; /**< @brief The id of the button from the enumerated list */
+  button_callbacks_t
+      callbacks; /**< @brief Callback functions for button events */
+} static _touch_buttons[] = { { 10,
+                                241,
+                                86,
+                                38,
+                                false,
+                                false,
+                                false,
+                                0,
+                                0,
+                                0,
+                                0,
+                                BUTTON_LEFT,
+                                { NULL, NULL, NULL } },
+                              { 117,
+                                241,
+                                86,
+                                38,
+                                false,
+                                false,
+                                false,
+                                0,
+                                0,
+                                0,
+                                0,
+                                BUTTON_MIDDLE,
+                                { NULL, NULL, NULL } },
+                              { 224,
+                                241,
+                                86,
+                                38,
+                                false,
+                                false,
+                                false,
+                                0,
+                                0,
+                                0,
+                                0,
+                                BUTTON_RIGHT,
+                                { NULL, NULL, NULL } } };
+
+#define BUTTON_POLL_INTERVAL_MS 20
+
+static bool _touch_in_button_region( uint16_t x, uint16_t y,
+                                     uint8_t button_index )
+{
+  return x >= _touch_buttons[ button_index ].x &&
+         x < ( _touch_buttons[ button_index ].x +
+               _touch_buttons[ button_index ].w ) &&
+         y >= _touch_buttons[ button_index ].y &&
+         y < ( _touch_buttons[ button_index ].y +
+               _touch_buttons[ button_index ].h );
+}
+
+static void _dispatch_button_callback( button_event_cb_t callback,
+                                       enum core2foraws_button_btns button,
+                                       press_event_t event )
+{
+  if( callback != NULL )
+  {
+    callback( button, event );
+  }
+}
+
+static bool _debounce_elapsed( uint32_t now_ticks,
+                               uint32_t start_ticks )
+{
+  return BUTTON_DEBOUNCE_TICKS == 0 ||
+         ( now_ticks - start_ticks ) >= BUTTON_DEBOUNCE_TICKS;
+}
+
 static void button_press_task( void *pvParameters )
 {
-    ft6x36_touch_t touch_received;
-    for ( ;; )
+  (void)pvParameters;
+
+  esp_lcd_touch_handle_t tp = core2foraws_display_get_touch_handle();
+
+  for( ;; )
+  {
+    vTaskDelay( pdMS_TO_TICKS( BUTTON_POLL_INTERVAL_MS ) );
+
+    if( tp == NULL )
     {
-        if( xQueueReceive( ft6x36_touch_queue_handle, &touch_received, ( TickType_t ) 2 ) ==  pdPASS )
+      tp = core2foraws_display_get_touch_handle();
+      continue;
+    }
+
+    /* Read raw touch data from the controller */
+    esp_lcd_touch_read_data( tp );
+
+    uint16_t touch_x = 0;
+    uint16_t touch_y = 0;
+    uint8_t  touch_cnt = 0;
+    esp_lcd_touch_point_data_t point_data[ 1 ];
+
+    esp_lcd_touch_get_data( tp, point_data, &touch_cnt, 1 );
+
+    if( touch_cnt > 0 )
+    {
+      touch_x = point_data[ 0 ].x;
+      touch_y = point_data[ 0 ].y;
+    }
+
+    bool any_touch = ( touch_cnt > 0 );
+
+    button_event_cb_t press_callbacks[ TOUCH_BUTTON_COUNT ] = { NULL };
+    button_event_cb_t release_callbacks[ TOUCH_BUTTON_COUNT ] = { NULL };
+    button_event_cb_t longpress_callbacks[ TOUCH_BUTTON_COUNT ] = { NULL };
+
+    if( xSemaphoreTake( _button_mutex, portMAX_DELAY ) != pdPASS )
+    {
+      continue;
+    }
+
+    uint32_t now_ticks = xTaskGetTickCount();
+
+    for( uint8_t i = 0; i < TOUCH_BUTTON_COUNT; i++ )
+    {
+      bool raw_touched =
+          any_touch && _touch_in_button_region( touch_x, touch_y, i );
+
+      if( raw_touched != _touch_buttons[ i ].last_touched )
+      {
+        _touch_buttons[ i ].last_touched = raw_touched;
+        _touch_buttons[ i ].debounce_start_time = now_ticks;
+      }
+
+      if( raw_touched != _touch_buttons[ i ].is_touched &&
+          _debounce_elapsed( now_ticks,
+                             _touch_buttons[ i ].debounce_start_time ) )
+      {
+        _touch_buttons[ i ].is_touched = raw_touched;
+
+        if( raw_touched )
         {
-            for ( uint8_t i = 0; i < sizeof( _touch_buttons ) / sizeof ( _touch_buttons[ 0 ] ); i++ )
-            {
-                if ( xSemaphoreTake( _button_mutex, portMAX_DELAY )  == pdPASS )
-                {
-                    bool touched = ( touch_received.current_state == LV_INDEV_STATE_PR ) & 
-                                    !(( touch_received.last_x < _touch_buttons[ i ].x ) || 
-                                    ( touch_received.last_x > ( _touch_buttons[ i ].x + _touch_buttons[ i ].w ) ) || 
-                                    ( touch_received.last_y < _touch_buttons[ i ].y ) || 
-                                    ( touch_received.last_y > (_touch_buttons[ i ].y + _touch_buttons[ i ].h ) ) );
-                    ESP_LOGD( _TAG, "Touch button id=%i, touched=%d", i, touched );
-
-                    uint32_t now_ticks = xTaskGetTickCount();
-                    if ( touched != _touch_buttons[ i ].last_touched )
-                    {
-                        if ( touched == 1 )
-                        {
-                            _touch_buttons[ i ].state |= PRESS;
-                            _touch_buttons[ i ].last_press_time = now_ticks;
-                        }
-                        else
-                        {
-                            if ( _touch_buttons[ i ].long_press_time && ( now_ticks - _touch_buttons[ i ].last_press_time > _touch_buttons[ i ].long_press_time ) )
-                            {
-                                _touch_buttons[ i ].state |= LONGPRESS;
-                            }
-                            else
-                            {
-                                _touch_buttons[ i ].state |= RELEASE;
-                            }
-                        }
-                        _touch_buttons[ i ].last_touched = touched;
-                    }
-                    _touch_buttons[ i ].last_touched = touched;
-                    _touch_buttons[ i ].is_touched = touched;
-
-                    xSemaphoreGive(_button_mutex);   
-                }
-            }
+          _touch_buttons[ i ].last_press_time = now_ticks;
+          _touch_buttons[ i ].longpress_reported = false;
+          press_callbacks[ i ] = _touch_buttons[ i ].callbacks.press_cb;
         }
-        vTaskDelay( pdMS_TO_TICKS( 30 ) );
-    }
-}
-#endif
+        else
+        {
+          release_callbacks[ i ] = _touch_buttons[ i ].callbacks.release_cb;
+          _touch_buttons[ i ].longpress_reported = false;
+        }
+      }
 
-esp_err_t core2foraws_button_tapped( enum core2foraws_button_btns button, bool *state )
-{
-    BaseType_t err;
-    err = xSemaphoreTake( _button_mutex, portMAX_DELAY );
-    
-    if ( err == pdPASS )
+      if( _touch_buttons[ i ].is_touched &&
+          !_touch_buttons[ i ].longpress_reported &&
+          _touch_buttons[ i ].long_press_time > 0 &&
+          ( now_ticks - _touch_buttons[ i ].last_press_time ) >=
+              _touch_buttons[ i ].long_press_time )
+      {
+        _touch_buttons[ i ].longpress_reported = true;
+        longpress_callbacks[ i ] = _touch_buttons[ i ].callbacks.longpress_cb;
+      }
+    }
+
+    xSemaphoreGive( _button_mutex );
+
+    for( uint8_t i = 0; i < TOUCH_BUTTON_COUNT; i++ )
     {
-        *state = ( _touch_buttons[ button ].state & PRESS ) > 0;
-        _touch_buttons[ button ].state &= ~PRESS;
-        xSemaphoreGive( _button_mutex );
+      _dispatch_button_callback( press_callbacks[ i ], _touch_buttons[ i ].id,
+                                 PRESS );
+      _dispatch_button_callback( longpress_callbacks[ i ],
+                                 _touch_buttons[ i ].id, LONGPRESS );
+      _dispatch_button_callback( release_callbacks[ i ],
+                                 _touch_buttons[ i ].id, RELEASE );
     }
-    
-    return core2foraws_common_error( err );
-}
-
-esp_err_t core2foraws_button_pressing( enum core2foraws_button_btns button, bool *state )
-{
-    BaseType_t err;
-    err = xSemaphoreTake( _button_mutex, portMAX_DELAY );
-    
-    if ( err == pdPASS )
-    {
-        *state = _touch_buttons[ button ].is_touched;
-        xSemaphoreGive( _button_mutex );
-    }
-
-    return core2foraws_common_error( err );
+  }
 }
 
-esp_err_t core2foraws_button_held( enum core2foraws_button_btns button, bool *state )
+esp_err_t
+core2foraws_button_register_callback( enum core2foraws_button_btns button,
+                                      press_event_t events,
+                                      button_event_cb_t callback )
 {
-    BaseType_t err;
-    err = xSemaphoreTake( _button_mutex, portMAX_DELAY );
-    
-    if ( err == pdPASS )
+  if( button > BUTTON_RIGHT || callback == NULL )
+  {
+    ESP_LOGE( _TAG, "Invalid button (%d) or callback is NULL", button );
+    return ESP_FAIL;
+  }
+
+  if( _button_mutex == NULL )
+  {
+    ESP_LOGE( _TAG, "Button system not initialized - mutex is NULL" );
+    return ESP_FAIL;
+  }
+
+  BaseType_t err = xSemaphoreTake(
+      _button_mutex,
+      pdMS_TO_TICKS( 1000 ) ); // Use timeout instead of waiting forever
+
+  if( err == pdPASS )
+  {
+    if( events & PRESS )
     {
-    uint32_t ticks = pdMS_TO_TICKS( LV_INDEV_DEF_LONG_PRESS_TIME );
-    
-        _touch_buttons[ button ].long_press_time = ticks;
-        *state = ( _touch_buttons[ button ].state & LONGPRESS ) > 0;
-        _touch_buttons[ button ].state &= ~LONGPRESS;
-        xSemaphoreGive( _button_mutex );
+      _touch_buttons[ button ].callbacks.press_cb = callback;
+      ESP_LOGD( _TAG, "Registered PRESS callback for button %d", button );
     }
-    
-    return core2foraws_common_error( err );
+    if( events & RELEASE )
+    {
+      _touch_buttons[ button ].callbacks.release_cb = callback;
+      ESP_LOGD( _TAG, "Registered RELEASE callback for button %d", button );
+    }
+    if( events & LONGPRESS )
+    {
+      _touch_buttons[ button ].callbacks.longpress_cb = callback;
+      // Set long press time if not already set
+      if( _touch_buttons[ button ].long_press_time == 0 )
+      {
+        _touch_buttons[ button ].long_press_time =
+            pdMS_TO_TICKS( LV_INDEV_DEF_LONG_PRESS_TIME );
+      }
+      ESP_LOGD( _TAG, "Registered LONGPRESS callback for button %d", button );
+    }
+    xSemaphoreGive( _button_mutex );
+    ESP_LOGI( _TAG,
+              "Successfully registered callback for button %d, events: 0x%02X",
+              button, events );
+    return ESP_OK; // Return ESP_OK on success
+  }
+  else
+  {
+    ESP_LOGE( _TAG, "Failed to take button mutex for callback registration" );
+    return ESP_FAIL; // Return ESP_FAIL on failure
+  }
 }
 
-esp_err_t core2foraws_button_released( enum core2foraws_button_btns button, bool *state )
+esp_err_t
+core2foraws_button_unregister_callback( enum core2foraws_button_btns button,
+                                        press_event_t events )
 {
-    BaseType_t err;
-    err = xSemaphoreTake( _button_mutex, portMAX_DELAY );
-    
-    if ( err == pdPASS )
-    {
-        *state = ( _touch_buttons[ button ].state & RELEASE ) > 0;
-        _touch_buttons[ button ].state &= ~RELEASE;
-        xSemaphoreGive( _button_mutex );
-    }
+  if( button > BUTTON_RIGHT )
+  {
+    ESP_LOGE( _TAG, "Invalid button (%d)", button );
+    return ESP_FAIL;
+  }
 
-    return core2foraws_common_error( err );
+  if( _button_mutex == NULL )
+  {
+    ESP_LOGE( _TAG, "Button system not initialized - mutex is NULL" );
+    return ESP_FAIL;
+  }
+
+  BaseType_t err = xSemaphoreTake( _button_mutex, pdMS_TO_TICKS( 1000 ) );
+
+  if( err == pdPASS )
+  {
+    if( events & PRESS )
+    {
+      _touch_buttons[ button ].callbacks.press_cb = NULL;
+    }
+    if( events & RELEASE )
+    {
+      _touch_buttons[ button ].callbacks.release_cb = NULL;
+    }
+    if( events & LONGPRESS )
+    {
+      _touch_buttons[ button ].callbacks.longpress_cb = NULL;
+      _touch_buttons[ button ].long_press_time = 0;
+    }
+    xSemaphoreGive( _button_mutex );
+    return ESP_OK;
+  }
+
+  ESP_LOGE( _TAG, "Failed to take button mutex for callback unregistration" );
+  return ESP_FAIL;
 }
 
 esp_err_t core2foraws_button_init( void )
 {
-    ESP_LOGI( _TAG, "\tInitializing" );
-    BaseType_t err = pdFAIL;
-#if CONFIG_LV_FT6X36_COORDINATES_QUEUE
-    _button_mutex = xSemaphoreCreateMutex();
+  ESP_LOGI( _TAG, "\tInitializing" );
+  BaseType_t err = pdFAIL;
 
-    if ( _button_mutex != NULL )
+  _button_mutex = xSemaphoreCreateMutex();
+
+  if( _button_mutex != NULL )
+  {
+    err = xTaskCreatePinnedToCore( button_press_task, "buttonPress",
+                                   configMINIMAL_STACK_SIZE * 6, NULL, 1,
+                                   &_button_task_handle, 1 );
+    if( err != pdPASS || _button_task_handle == NULL )
     {
-        err = xTaskCreatePinnedToCore( button_press_task, "buttonPress", configMINIMAL_STACK_SIZE * 3, NULL, 0, ( TaskHandle_t * ) NULL, 1 );
+      ESP_LOGE( _TAG, "Failed to create button task" );
+      vSemaphoreDelete( _button_mutex );
+      _button_mutex = NULL;
     }
-#else
-    ESP_LOGE( _TAG, "Must enable CONFIG_LV_FT6X36_COORDINATES_QUEUE using menuconfig to use this driver" );
-#endif
-    return core2foraws_common_error( !err );
+  }
+  else
+  {
+    ESP_LOGE( _TAG, "Failed to create button mutex" );
+  }
+
+  return core2foraws_common_error( !err );
 }

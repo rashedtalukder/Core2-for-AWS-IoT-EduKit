@@ -1,7 +1,7 @@
 
 /*
  * Core2 for AWS IoT Kit BSP v2.0.0
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2026 Rashed Talukder.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -83,7 +83,7 @@ esp_err_t core2foraws_rgb_led_init( void );
  *  #include <freertos/FreeRTOS.h>
  *  #include <freertos/task.h>
  *  
- *  #include "core2foraws_h"
+ *  #include "core2foraws.h"
  *
  *  void rgb_demo_task( void *pvParameters )
  *  {
@@ -139,7 +139,7 @@ esp_err_t core2foraws_rgb_led_single_color_set( uint8_t led_num, uint32_t color 
  *  #include <freertos/FreeRTOS.h>
  *  #include <freertos/task.h>
  *  
- *  #include "core2foraws_h"
+ *  #include "core2foraws.h"
  *
  *  void rgb_demo_task( void *pvParameters )
  *  {
@@ -193,7 +193,7 @@ esp_err_t core2foraws_rgb_led_side_color_set( rgb_led_side_type_t side, uint32_t
  *  #include <freertos/FreeRTOS.h>
  *  #include <freertos/task.h>
  *  
- *  #include "core2foraws_h"
+ *  #include "core2foraws.h"
  *
  *  void rgb_demo_task( void *pvParameters )
  *  {
@@ -277,7 +277,7 @@ esp_err_t core2foraws_rgb_led_write( void );
  *  #include <freertos/FreeRTOS.h>
  *  #include <freertos/task.h>
  *  
- *  #include "core2foraws_h"
+ *  #include "core2foraws.h"
  *
  *  void rgb_demo_task( void *pvParameters )
  *  {
@@ -321,7 +321,7 @@ esp_err_t core2foraws_rgb_led_clear( void );
  * After initializing the device drivers using the @ref 
  * core2foraws_init convenience function, remove the RGB LED driver.
  * @code{c}
- *  #include "core2foraws_h"
+ *  #include "core2foraws.h"
  *  
  *  void app_main( void )
  *  {
