@@ -264,13 +264,17 @@ boards:
       sys_i2c:
         sda: "GPIO21"
         scl: "GPIO22"
-        devices: ["AXP192", "BM8563", "Touch Panel", "MPU6886 (add-on board)", "ATECC608 (add-on board)"]
+        devices: ["AXP192", "BM8563", "Touch Panel (FT5x06)", "MPU-6886 (add-on board)", "ATECC608A (add-on board)", "J3 I2C socket (add-on board)"]
         notes:
-          - "All on-board I2C peripherals — including those on the add-on board — share this internal I2C bus."
+          - "All on-board I2C peripherals \u2014 including add-on board devices (MPU-6886, ATECC608A, J3 socket) \u2014 share this internal I2C bus."
+          - "ATECC608A has non-standard wake/sleep/idle timing; all SYS_I2C transactions must be serialized carefully."
       ext_i2c:
         sda: "GPIO32"
         scl: "GPIO33"
-        devices: ["Port-A (Red) external Grove connector — for external I2C 'unit' accessories only"]
+        devices:
+          - "Port-A (Red) Grove connector (core board \u2014 for external I2C 'unit' accessories only)"
+        notes:
+          - "Used exclusively for external Grove 'unit' accessories plugged into Port-A (Red). No add-on board onboard devices use this bus."
       ext_dac_adc:
         dac: "GPIO26"
         adc: "GPIO36"
@@ -305,19 +309,19 @@ boards:
           5:  { signal: "GND" }
           6:  { signal: "EN" }
           7:  { signal: "GPIO23" }
-          8:  { signal: "RGB" }
+          8:  { signal: "GPIO25" }
           9:  { signal: "GPIO38" }
-          10: { signal: "GPIO26" }
+          10: { signal: "RGB" }
           11: { signal: "GPIO18" }
           12: { signal: "+3.3V" }
           13: { signal: "GPIO3" }
           14: { signal: "U2_TXD" }
           15: { signal: "GPIO13" }
           16: { signal: "U2_RXD" }
-          17: { signal: "GPIO21" }
+          17: { signal: "I2C_SDA" }
           18: { signal: "I2C_SCL" }
           19: { signal: "GPIO32" }
-          20: { signal: "I2C_SDA" }
+          20: { signal: "GPIO33" }
           21: { signal: "GPIO27" }
           22: { signal: "NC" }
           23: { signal: "GPIO2" }
@@ -376,9 +380,9 @@ boards:
         part: "MPU-6886"
         interface:
           type: "I2C"
-          sda: "GPIO21"
-          scl: "GPIO22"
-          bus: "Internal I2C (SYS_I2C) via M5Bus pins 17/18"
+          sda: "I2C_SDA"
+          scl: "I2C_SCL"
+          bus: "Internal I2C (SYS_I2C) via M5Bus pins 17/18 (GPIO21/GPIO22)"
         address_select:
           pin: "AD0/SDO"
           pull: { resistor: "R5", value: "4.7k", to: "GND" }
@@ -386,7 +390,7 @@ boards:
           vdd: "+3.3V"
           vddio: "+3.3V"
         notes:
-          - "Connected to internal I2C bus (GPIO21/GPIO22), NOT the external Port-A I2C."
+          - "Connected to internal I2C bus (GPIO21/GPIO22), same bus as AXP192, BM8563, and touch panel."
           - "INT and CS appear not routed for active use in this diagram."
 
       secure_element:
@@ -394,14 +398,15 @@ boards:
         part: "ATECC608A-TNGTLSU-B"
         interface:
           type: "I2C"
-          sda: "GPIO21"
-          scl: "GPIO22"
-          bus: "Internal I2C (SYS_I2C) via M5Bus pins 17/18"
+          sda: "I2C_SDA"
+          scl: "I2C_SCL"
+          bus: "Internal I2C (SYS_I2C) via M5Bus pins 17/18 (GPIO21/GPIO22)"
         power:
           vcc: "+3.3V"
           gnd: "GND"
         notes:
-          - "Connected to internal I2C bus (GPIO21/GPIO22), NOT the external Port-A I2C."
+          - "Connected to internal I2C bus (GPIO21/GPIO22), same bus as AXP192, BM8563, touch panel, and MPU-6886."
+          - "Non-standard wake/sleep/idle timing; serialize transactions relative to other devices on SYS_I2C."
 
       rgb_led_chain:
         count: 10
@@ -467,14 +472,18 @@ inter_board_links:
     - { core_pin: 4, addon_pin: 4, signal: "GPIO36" }
     - { core_pin: 6, addon_pin: 6, signal: "EN" }
     - { core_pin: 7, addon_pin: 7, signal: "GPIO23" }
+    - { core_pin: 8, addon_pin: 8, signal: "GPIO25" }
     - { core_pin: 9, addon_pin: 9, signal: "GPIO38" }
-    - { core_pin: 10, addon_pin: 10, signal: "GPIO26" }
+    - { core_pin: 10, addon_pin: 10, signal: "GPIO26/RGB", note: "GPIO26 (DAC) enters add-on as RGB net; drives SK6812 LED chain via transistor Q1" }
     - { core_pin: 11, addon_pin: 11, signal: "GPIO18" }
     - { core_pin: 12, addon_pin: 12, signal: "MCU_VDD/+3.3V" }
     - { core_pin: 13, addon_pin: 13, signal: "GPIO3" }
     - { core_pin: 15, addon_pin: 15, signal: "GPIO13" }
-    - { core_pin: 17, addon_pin: 17, signal: "GPIO21" }
-    - { core_pin: 19, addon_pin: 19, signal: "GPIO32" }
+    - { core_pin: 16, addon_pin: 16, signal: "GPIO14/U2_RXD", note: "UART2 TX from ESP32; add-on labels as U2_RXD (received from ESP32 perspective)" }
+    - { core_pin: 17, addon_pin: 17, signal: "GPIO21/I2C_SDA", note: "SYS_I2C SDA; add-on renames as I2C_SDA for IMU, ATECC608A, and J3 socket" }
+    - { core_pin: 18, addon_pin: 18, signal: "GPIO22/I2C_SCL", note: "SYS_I2C SCL; add-on renames as I2C_SCL for IMU, ATECC608A, and J3 socket" }
+    - { core_pin: 19, addon_pin: 19, signal: "GPIO32", note: "EXT_I2C SDA; passthrough to Port-A (Red) only — not used by any add-on onboard device" }
+    - { core_pin: 20, addon_pin: 20, signal: "GPIO33", note: "EXT_I2C SCL; passthrough to Port-A (Red) only — not used by any add-on onboard device" }
     - { core_pin: 21, addon_pin: 21, signal: "GPIO27" }
     - { core_pin: 23, addon_pin: 23, signal: "GPIO2" }
     - { core_pin: 24, addon_pin: 24, signal: "GPIO0/CLK" }
@@ -492,14 +501,39 @@ functional_summary:
     - "Speaker amp uses I2S from GPIO0/GPIO12/GPIO2."
     - "M5Bus exports power and many GPIOs to the add-on board."
   addon_board:
-    - "Microphone uses CLK and DAT nets from M5Bus."
-    - "MPU6886 IMU and ATECC608A secure element use the internal I2C bus (GPIO21/GPIO22) via M5Bus pins 17/18."
-    - "10 SK6812 RGB LEDs are powered from +5V and driven from the RGB net through a transistor stage."
-    - "Add-on provides UART, GPIO, and power/I2C sockets."
+    - "Microphone uses CLK (GPIO0) and DAT (GPIO34) nets from M5Bus; PDM interface, not standard I2S."
+    - "MPU-6886 IMU and ATECC608A secure element use the internal I2C bus (GPIO21/GPIO22) via M5Bus pins 17/18."
+    - "10 SK6812 RGB LEDs are powered from +5V and driven from GPIO26 (M5Bus pin 10, relabeled RGB) through transistor Q1."
+    - "Add-on provides UART socket (GPIO13/14), GPIO socket (GPIO26/GPIO36), and I2C socket (J3, GPIO21/GPIO22 internal bus)."
 
 notes:
   - "This YAML preserves net names from the schematics where possible."
-  - "A few add-on M5Bus labels use local aliases such as CLK, DAT, RGB, U2_TXD, and U2_RXD rather than raw MCU GPIO names."
+  - "A few add-on M5Bus labels use local aliases such as CLK (GPIO0), DAT (GPIO34), RGB (GPIO26), U2_TXD, and U2_RXD rather than raw MCU GPIO names."
   - "For autogenerated BSP/driver work, treat the Core2 main board and add-on board as separate net domains joined by M5Bus."
-  - "All on-board I2C peripherals (both core board and add-on board) share the internal I2C bus on GPIO21/GPIO22. The external I2C bus (GPIO32/GPIO33) on Port-A is only used by external 'unit' accessories."
+  - "All add-on board onboard devices (MPU-6886, ATECC608A, J3 I2C socket) use the internal I2C bus (GPIO21/GPIO22) via M5Bus pins 17/18. Port-A (Red) on GPIO32/GPIO33 is used exclusively by external Grove 'unit' accessories."
+  - "GPIO26 (M5Bus pin 10) is relabeled RGB on the add-on board and drives the SK6812 LED chain via transistor Q1. This conflicts with its Port-B DAC role on the standard Core2 — the two uses are mutually exclusive."
   - "Source basis: Core board from the uploaded PDF page 1 and add-on board from the provided schematic image. :contentReference[oaicite:2]{index=2}"
+
+bsp_capabilities:
+  reference_bsp: "espressif/esp-bsp component m5stack_core_2 (https://github.com/espressif/esp-bsp/tree/master/bsp/m5stack_core_2)"
+  notes: "Configuration gaps and library differences between this BSP and the standard Core2 BSP, scoped to display, touch, and microphone"
+
+  missing_dependency:
+    espressif__esp_codec_dev:
+      version: "~1.5"
+      reason: "Standard Core2 BSP uses esp_codec_dev to wrap speaker (NS4168) and microphone (SPM1423HM4H-B) behind a codec-agnostic API. This BSP rolls its own raw i2s_std / i2s_pdm logic. Adding esp_codec_dev would reduce maintenance."
+      codec_if: "NULL — NS4168 has no I2C control plane; data interface only"
+
+  display_config:
+    draw_buffer_lines:
+      current: 40
+      standard_bsp: 50
+      note: "Raising LCD_DRAW_BUF_LINES from 40 to 50 reduces partial-transfer overhead on the 40 MHz SPI bus"
+    swap_bytes:
+      current: true
+      standard_bsp: "conditional on BSP_LCD_BIGENDIAN"
+      note: "Hard-coding true is correct for ILI9341 over SPI with LVGL 9; no change needed"
+    lvgl_task_affinity:
+      current: -1
+      standard_bsp: 1
+      note: "Standard BSP pins LVGL task to core 1. Consider setting task_affinity = 1 if camera or another CPU-intensive peripheral is added on core 0"
