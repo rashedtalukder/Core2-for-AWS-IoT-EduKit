@@ -133,6 +133,7 @@ static esp_err_t _init_lcd_panel( void )
 
     ESP_RETURN_ON_ERROR( esp_lcd_panel_reset( _panel_handle ), _TAG, "panel reset" );
     ESP_RETURN_ON_ERROR( esp_lcd_panel_init( _panel_handle ), _TAG, "panel init" );
+    ESP_RETURN_ON_ERROR( esp_lcd_panel_invert_color( _panel_handle, true ), _TAG, "invert color" );
     ESP_RETURN_ON_ERROR( esp_lcd_panel_disp_on_off( _panel_handle, true ), _TAG, "disp on" );
 
     return ESP_OK;
@@ -256,6 +257,7 @@ esp_err_t core2foraws_display_init( void )
         },
         .flags = {
             .buff_dma    = true,
+            .swap_bytes  = true,
         },
     };
 
