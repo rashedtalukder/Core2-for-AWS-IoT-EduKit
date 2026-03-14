@@ -3,7 +3,7 @@ menu "Virtual touch buttons"
 
     config CORE2FORAWS_BUTTON_DEBOUNCE_MS
         int "Virtual button debounce time (ms)"
-        default 30
+        default 10
         range 0 200
         help
         Minimum time that a press or release state must remain stable before

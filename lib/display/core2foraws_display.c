@@ -69,7 +69,7 @@
 static const char *_TAG = "CORE2FORAWS_DISPLAY";
 
 /* Handles exposed to consumers */
-lv_disp_t *core2foraws_display_ptr = NULL;
+lv_display_t *core2foraws_display_ptr = NULL;
 
 /* Private handles */
 static esp_lcd_panel_io_handle_t _io_handle = NULL;

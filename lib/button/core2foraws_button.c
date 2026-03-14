@@ -291,7 +291,7 @@ core2foraws_button_register_callback( enum core2foraws_button_btns button,
       if( _touch_buttons[ button ].long_press_time == 0 )
       {
         _touch_buttons[ button ].long_press_time =
-            pdMS_TO_TICKS( LV_INDEV_DEF_LONG_PRESS_TIME );
+            pdMS_TO_TICKS( 400 ); /* LVGL default long press time ms */
       }
       ESP_LOGD( _TAG, "Registered LONGPRESS callback for button %d", button );
     }

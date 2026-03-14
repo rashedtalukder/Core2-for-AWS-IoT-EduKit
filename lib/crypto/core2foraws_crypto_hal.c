@@ -16,6 +16,9 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "driver/i2c_master.h"
+#include "driver/gpio.h"
+#include "esp_rom_sys.h"
 #include "cryptoauthlib.h"
 
 #include "core2foraws_common.h"
@@ -23,7 +26,61 @@
 
 static const char *TAG = "ATECC608_HAL";
 
+/* SDA pin for the internal I2C bus — must match core2foraws_i2c.c */
+#define ATECC_SDA_PIN   GPIO_NUM_21
+
 static i2c_master_dev_handle_t _atecc_dev = NULL;
+
+/**
+ * @brief Send the ATECC608 I2C wake pulse and verify the response.
+ *
+ * The ATECC608 wakes when SDA is held low for ≥60 µs (tWLO).  Rather
+ * than issuing a general-call write to address 0x00 through the I2C
+ * driver (which logs a spurious NACK error), we briefly switch SDA to
+ * GPIO output mode, hold it low, then restore it to open-drain mode
+ * for the I2C peripheral.
+ */
+static ATCA_STATUS _atecc_wake( ATCAIface iface )
+{
+    if( _atecc_dev == NULL )
+    {
+        return ATCA_NOT_INITIALIZED;
+    }
+
+    ATCAIfaceCfg *cfg = atgetifacecfg( iface );
+    if( cfg == NULL )
+    {
+        return ATCA_BAD_PARAM;
+    }
+
+    /* Drive SDA low for ≥60 µs to wake the ATECC608 */
+    gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_OUTPUT_OD );
+    gpio_set_level( ATECC_SDA_PIN, 0 );
+    esp_rom_delay_us( 80 );
+    gpio_set_level( ATECC_SDA_PIN, 1 );
+    /* Restore SDA to I2C peripheral control */
+    gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_INPUT_OUTPUT_OD );
+
+    /* Wait tWHI + tWLO */
+    atca_delay_us( cfg->wake_delay );
+
+    /* Read the 4-byte wake response from the real device address */
+    uint8_t response[4] = { 0 };
+    int retries = cfg->rx_retries;
+    esp_err_t rx_err = ESP_FAIL;
+    while( retries-- > 0 && rx_err != ESP_OK )
+    {
+        rx_err = core2foraws_i2c_read( CORE2FORAWS_I2C_INTERNAL, _atecc_dev,
+            CORE2FORAWS_I2C_NO_REG, response, sizeof( response ) );
+    }
+
+    if( rx_err != ESP_OK )
+    {
+        return ATCA_WAKE_FAILED;
+    }
+
+    return hal_check_wake( response, 4 );
+}
 
 /* ------------------------------------------------------------------ */
 /*  Wrapped HAL functions                                              */
@@ -71,7 +128,26 @@ ATCA_STATUS __wrap_hal_i2c_post_init( ATCAIface iface )
 ATCA_STATUS __wrap_hal_i2c_send( ATCAIface iface, uint8_t word_address,
                                  uint8_t *txdata, int txlength )
 {
-    (void) iface;
+    /*
+     * During the wake sequence, CryptoAuthLib temporarily sets the iface
+     * config address to 0x00 (general call) before calling atsend().
+     * Detect this and delegate to the wake helper so the write actually
+     * goes to address 0x00 instead of the static _atecc_dev handle.
+     */
+    if( iface && iface->mIfaceCFG )
+    {
+        uint16_t cur_addr = ATCA_IFACECFG_I2C_ADDRESS( iface->mIfaceCFG );
+        if( cur_addr == 0x00 )
+        {
+            /* Wake pulse — drive SDA low via GPIO instead of I2C driver */
+            gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_OUTPUT_OD );
+            gpio_set_level( ATECC_SDA_PIN, 0 );
+            esp_rom_delay_us( 80 );
+            gpio_set_level( ATECC_SDA_PIN, 1 );
+            gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_INPUT_OUTPUT_OD );
+            return ATCA_SUCCESS;
+        }
+    }
 
     size_t write_size = 1;
     if( NULL != txdata && 0 < txlength )
@@ -135,21 +211,27 @@ ATCA_STATUS __wrap_hal_i2c_release( void *hal_data )
     return ATCA_SUCCESS;
 }
 
+ATCA_STATUS __wrap_hal_i2c_wake( ATCAIface iface )
+{
+    return _atecc_wake( iface );
+}
+
 ATCA_STATUS __wrap_hal_i2c_control( ATCAIface iface, uint8_t option,
                                     void *param, size_t paramlen )
 {
-    (void) param;
     (void) paramlen;
 
     if( iface && iface->mIfaceCFG )
     {
-        if( ATCA_HAL_CHANGE_BAUD == option )
+        switch( option )
         {
-            return __wrap_hal_i2c_change_baud( iface, *( uint32_t * )param );
-        }
-        else
-        {
-            return ATCA_UNIMPLEMENTED;
+            case ATCA_HAL_CONTROL_WAKE:
+                return _atecc_wake( iface );
+            case ATCA_HAL_CHANGE_BAUD:
+                return __wrap_hal_i2c_change_baud( iface,
+                    ( param != NULL ) ? *( uint32_t * )param : 0 );
+            default:
+                return ATCA_UNIMPLEMENTED;
         }
     }
     return ATCA_BAD_PARAM;

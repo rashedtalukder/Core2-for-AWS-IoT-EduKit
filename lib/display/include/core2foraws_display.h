@@ -47,7 +47,7 @@ extern "C"
    * @brief Pointer to the registered LVGL display struct.
    */
   /* @[declare_core2foraws_display_ptr] */
-  extern lv_disp_t *core2foraws_display_ptr;
+  extern lv_display_t *core2foraws_display_ptr;
   /* @[declare_core2foraws_display_ptr] */
 
   /**
