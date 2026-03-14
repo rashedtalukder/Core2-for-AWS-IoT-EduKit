@@ -308,6 +308,10 @@ esp_err_t core2foraws_power_backlight_set( uint8_t brightness )
     }
 
     uint16_t volts = ( uint32_t )brightness * ( DISPLAY_BACKLIGHT_MAX_VOLTS - DISPLAY_BACKLIGHT_MIN_VOLTS ) / 100 + DISPLAY_BACKLIGHT_MIN_VOLTS;
+    /* AXP192 DCDC3 steps in 25 mV increments from a 700 mV base.
+     * Round down to the nearest valid step so the rail driver does not
+     * reject the voltage with ESP_ERR_INVALID_ARG. */
+    volts -= ( volts - 700U ) % 25U;
     ESP_LOGD( _TAG, "\tDisplay backlight voltage: %d mV", volts );
 
     esp_err_t err = core2foraws_power_rail_mv_set( POWER_RAIL_DISPLAY_BACKLIGHT, volts );
