@@ -58,7 +58,7 @@ static esp_netif_t *_wifi_netif = NULL;
 static SemaphoreHandle_t _service_name_mutex;
 static char service_name[ 19 ];
 
-static char *_get_pop( void );
+static const char *_get_pop( char *pop, size_t pop_size );
 static void _on_prov_event_handler( void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data );
 static void _on_got_ip( void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data );
 static void _on_wifi_start( void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data );
@@ -67,27 +67,17 @@ static void _on_wifi_disconnect( void *arg, esp_event_base_t event_base, int32_t
 static void _device_service_name_set( void );
 static void _wifi_prov_qr_print( void );
 
-static char *_get_pop( void )
+static const char *_get_pop( char *pop, size_t pop_size )
 {
-    char *pop = calloc( 1, PROV_POP_STR_SIZE );
-    if ( !pop )
-    {
-        ESP_LOGE( _TAG, "Failed to allocate memory for Proof of Possession." );
-        return NULL;
-    }
-    
     uint8_t eth_mac[ 6 ];
     esp_err_t err = esp_wifi_get_mac( WIFI_IF_STA, eth_mac );
     if ( err == ESP_OK )
     {
-        snprintf( pop, PROV_POP_STR_SIZE, "%02x%02x%02x%02x", eth_mac[ 2 ], eth_mac[ 3 ], eth_mac[ 4 ], eth_mac[ 5 ] );
+        snprintf( pop, pop_size, "%02x%02x%02x%02x", eth_mac[ 2 ], eth_mac[ 3 ], eth_mac[ 4 ], eth_mac[ 5 ] );
         return pop;
     }
-    else
-    {
-        ESP_LOGE( _TAG, "Failed to get MAC address to generate PoP." );
-    }
-    free( pop );
+
+    ESP_LOGE( _TAG, "Failed to get MAC address to generate PoP." );
     return NULL;
 }
 
@@ -297,9 +287,9 @@ esp_err_t core2foraws_wifi_start( void )
 
         if ( xSemaphoreTake( _service_name_mutex, portMAX_DELAY ) == pdTRUE )
         {
-            char *pop = _get_pop();
+            char pop[ PROV_POP_STR_SIZE ];
+            _get_pop( pop, sizeof( pop ) );
             err = wifi_prov_mgr_start_provisioning( security, pop, service_name, service_key );
-            free( pop );
             xSemaphoreGive( _service_name_mutex );
         }
         else
@@ -363,11 +353,11 @@ esp_err_t core2foraws_wifi_prov_str_get( char *wifi_prov_str )
     int err = -1;
     if ( xSemaphoreTake( _service_name_mutex, pdMS_TO_TICKS( 40 ) ) == pdTRUE )
     {
-        char *pop = _get_pop();
+        char pop[ PROV_POP_STR_SIZE ];
+        _get_pop( pop, sizeof( pop ) );
         err = snprintf( wifi_prov_str, WIFI_PROV_STR_LEN, "{\"ver\":\"%s\",\"name\":\"%s\"" \
                     ",\"pop\":\"%s\",\"transport\":\"%s\"}",
                     PROV_QR_VERSION, service_name, pop, PROV_TRANSPORT );
-        free( pop );
         xSemaphoreGive( _service_name_mutex );
 
         if ( err > 0 )
