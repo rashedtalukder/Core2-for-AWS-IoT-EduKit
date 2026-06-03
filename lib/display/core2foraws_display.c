@@ -233,7 +233,10 @@ esp_err_t core2foraws_display_init( void )
     }
 
     /* ── 4. LVGL port ── */
-    const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    /* Raise the LVGL task stack from the default 7168 bytes to avoid a
+     * stack overflow during canvas/image rendering. */
+    lvgl_cfg.task_stack = 10240;
     err = lvgl_port_init( &lvgl_cfg );
     if( err != ESP_OK )
     {
