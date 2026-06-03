@@ -167,8 +167,13 @@ static void _device_service_name_set( void )
 {
     uint8_t eth_mac[ 6 ];
     const char *ssid_prefix = "CORE2FORAWS_";
-    esp_wifi_get_mac( WIFI_IF_STA, eth_mac );
-    
+    esp_err_t err = esp_wifi_get_mac( WIFI_IF_STA, eth_mac );
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "Failed to get MAC address to set service name: 0x%x", err );
+        return;
+    }
+
     if ( xSemaphoreTake( _service_name_mutex, pdMS_TO_TICKS( 40 ) ) == pdTRUE )
     {
         snprintf( service_name, sizeof( service_name ), "%s%02X%02X%02X",

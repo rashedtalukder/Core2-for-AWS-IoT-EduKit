@@ -128,7 +128,7 @@ esp_err_t core2foraws_crypto_serial_get( char *serial_number )
     {
         for ( size_t i = 0; i < ATCA_SERIAL_NUM_SIZE; i++ )
         {
-            sprintf( serial_number + i * 2, "%02X", serial[ i ] );
+            snprintf( serial_number + i * 2, 3, "%02X", serial[ i ] );
         }
 
         serial_number[ CRYPTO_SERIAL_STR_SIZE - 1 ] = '\0';
