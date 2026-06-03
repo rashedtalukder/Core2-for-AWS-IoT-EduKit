@@ -37,8 +37,6 @@ extern "C"
 #include <esp_err.h>
 #include <esp_lcd_touch.h>
 #include <esp_lvgl_port.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
 #include <stdint.h>
 
 #include "lvgl.h"

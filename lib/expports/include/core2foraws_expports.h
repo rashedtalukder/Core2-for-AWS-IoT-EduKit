@@ -323,9 +323,9 @@ esp_err_t core2foraws_expports_pin_reset( gpio_num_t pin );
  *  
  * Configures the pin to use I2C.
  * 
- * @note The baud rate of the I2C device can be set in the Kconfig 
- * menu for the symbol `CONFIG_I2C_MANAGER_1_FREQ_HZ`. The default 
- * baud rate is 400KHz.
+ * @note The baud rate of the I2C device is set per-device via the 
+ * `scl_speed_hz` argument to @ref core2foraws_expports_i2c_device_add. 
+ * A typical baud rate is 400KHz.
  *
  * @note The AXP192 PMU is configured to output 5v on the 
  * expansion port's VCC pin. Some peripherals require 3.3V and 
@@ -418,9 +418,9 @@ esp_err_t core2foraws_expports_i2c_device_add( uint16_t device_address, uint32_t
  * Read more about [I2C capabilities of the ESP32 microcontroller 
  * and available APIs in the ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/peripherals/i2c.html).
  * 
- * @note The baud rate of the I2C device can be set in the Kconfig 
- * menu for the symbol `CONFIG_I2C_MANAGER_1_FREQ_HZ`. The default 
- * baud rate is 400KHz.
+ * @note The baud rate of the I2C device is set per-device via the 
+ * `scl_speed_hz` argument to @ref core2foraws_expports_i2c_device_add. 
+ * A typical baud rate is 400KHz.
  *
  * @note The AXP192 PMU is configured to output 5v on the 
  * expansion port's VCC pin. Some peripherals require 3.3V and 
@@ -501,9 +501,9 @@ esp_err_t core2foraws_expports_i2c_read( i2c_master_dev_handle_t dev_handle, uin
  * Read more about [I2C capabilities of the ESP32 microcontroller 
  * and available APIs in the ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/peripherals/i2c.html).
  * 
- * @note The baud rate of the I2C device can be set in the Kconfig 
- * menu for the symbol `CONFIG_I2C_MANAGER_1_FREQ_HZ`. The default 
- * baud rate is 400KHz.
+ * @note The baud rate of the I2C device is set per-device via the 
+ * `scl_speed_hz` argument to @ref core2foraws_expports_i2c_device_add. 
+ * A typical baud rate is 400KHz.
  *
  * @note The AXP192 PMU is configured to output 5v on the 
  * expansion port's VCC pin. Some peripherals require 3.3V and 
