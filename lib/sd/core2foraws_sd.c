@@ -29,6 +29,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
+#include <driver/spi_master.h>
+#include <driver/gpio.h>
 #include <esp_log.h>
 
 #include "core2foraws_sd.h"
@@ -52,6 +54,13 @@ static const char *_TAG = "CORE2FORAWS_SD";
 #define SPI_HOST_USE HSPI_HOST
 /* @[declare_spi_host_use] */
 
+/* SD card SPI bus pins (shared with the LCD, see schema.yml). These must
+ * match the pins the display driver uses so both devices share one bus. */
+#define SD_SPI_MOSI GPIO_NUM_23
+#define SD_SPI_MISO GPIO_NUM_38
+#define SD_SPI_SCLK GPIO_NUM_18
+#define SD_SPI_CS   GPIO_NUM_4
+
 esp_err_t core2foraws_sd_mount( void )
 {
     esp_err_t err = ESP_OK;
@@ -73,6 +82,26 @@ esp_err_t core2foraws_sd_mount( void )
 
     _mount_path_len = strlen( _mount_path );
 
+    /* The SD card and the LCD share one SPI bus (schema.yml). The display
+     * driver normally brings the bus up, but SD support can be enabled
+     * without the display, so initialize the bus here too. If the display
+     * already initialized it, spi_bus_initialize() returns
+     * ESP_ERR_INVALID_STATE, which is benign and ignored. */
+    const spi_bus_config_t bus_cfg = {
+        .mosi_io_num     = SD_SPI_MOSI,
+        .miso_io_num     = SD_SPI_MISO,
+        .sclk_io_num     = SD_SPI_SCLK,
+        .quadwp_io_num   = GPIO_NUM_NC,
+        .quadhd_io_num   = GPIO_NUM_NC,
+        .max_transfer_sz = 4000,
+    };
+    err = spi_bus_initialize( SPI_HOST_USE, &bus_cfg, SPI_DMA_CH_AUTO );
+    if( err != ESP_OK && err != ESP_ERR_INVALID_STATE )
+    {
+        ESP_LOGE( _TAG, "Failed to initialize SPI bus: 0x%x", err );
+        return err;
+    }
+
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     esp_vfs_fat_mount_config_t mount_config = {
         .format_if_mount_failed = false,
@@ -89,7 +118,7 @@ esp_err_t core2foraws_sd_mount( void )
 #else
     sdspi_slot_config_t slot_config = SDSPI_SLOT_CONFIG_DEFAULT();
 #endif
-    slot_config.gpio_cs = 4;
+    slot_config.gpio_cs = SD_SPI_CS;
     xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
 #if ESP_IDF_VERSION > ESP_IDF_VERSION_VAL( 4, 1, 0 )
     err = esp_vfs_fat_sdspi_mount( _mount_path, &host, &slot_config, &mount_config, &card );

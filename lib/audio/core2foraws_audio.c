@@ -43,6 +43,19 @@
 #define I2S_DATA_PIN 2
 #define I2S_DATA_IN_PIN 34
 
+/* The SPM1423 PDM microphone is only valid while its clock stays within
+   1.0 MHz - 3.25 MHz (see lib/audio/datasheet/SPM1423.md, sections 11.1
+   and 20). The ESP32 PDM receiver derives that clock from the audio
+   sample rate using a fixed PDM-to-PCM decimation ratio of 64, so the
+   PDM clock equals AUDIO_SAMPLING_FREQ * 64. Guard against a sample rate
+   that would drop the PDM clock below the 1 MHz minimum and push the
+   microphone into sleep mode. */
+#define AUDIO_PDM_DECIMATION_RATIO 64
+#define AUDIO_PDM_CLOCK_MIN_HZ 1000000
+#if ( AUDIO_SAMPLING_FREQ * AUDIO_PDM_DECIMATION_RATIO ) < AUDIO_PDM_CLOCK_MIN_HZ
+#error "AUDIO_SAMPLING_FREQ is too low: the SPM1423 PDM clock (AUDIO_SAMPLING_FREQ * 64) would fall below its 1 MHz minimum. Use a sample rate of at least 15625 Hz."
+#endif
+
 static bool _speaker_initialized = false;
 static bool _microphone_initialized = false;
 

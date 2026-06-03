@@ -46,7 +46,8 @@ static const char *_TAG = "CORE2FORAWS_RGB_LED";
 #define SK6812_BYTES_PER_LED    3          /* GRB, no white channel    */
 #define SK6812_BUF_SIZE         ( RGB_LED_NUMS * SK6812_BYTES_PER_LED )
 #define SK6812_FLUSH_TIMEOUT_MS 1000
-#define SK6812_RESET_US         50         /* latch / reset pause      */
+#define SK6812_RESET_US         80         /* latch / reset pause (SK6812
+                                              requires >= 80 us low) */
 
 /* RMT resolution: 10 MHz, 1 tick = 100 ns */
 #define SK6812_RMT_RESOLUTION_HZ 10000000

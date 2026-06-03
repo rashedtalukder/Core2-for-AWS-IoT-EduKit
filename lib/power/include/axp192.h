@@ -239,10 +239,10 @@ typedef enum {
 /* Backup battery voltage selection (REG 0x35 bits [6:5])             */
 /* ------------------------------------------------------------------ */
 typedef enum {
-    AXP192_BACKUP_VOLT_3V1 = 0,
-    AXP192_BACKUP_VOLT_3V0 = 1,
-    AXP192_BACKUP_VOLT_3V6 = 2,
-    AXP192_BACKUP_VOLT_2V5 = 3
+    AXP192_BACKUP_VOLT_3V1  = 0,
+    AXP192_BACKUP_VOLT_3V0  = 1,
+    AXP192_BACKUP_VOLT_3V0b = 2, /* REG35H[6:5]=10 is also 3.0V per datasheet */
+    AXP192_BACKUP_VOLT_2V5  = 3
 } axp192_backup_voltage_t;
 
 /* ------------------------------------------------------------------ */

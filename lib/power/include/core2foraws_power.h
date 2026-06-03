@@ -335,6 +335,39 @@ esp_err_t core2foraws_power_plugged_get( bool *status );
 /* @[declare_core2foraws_power_plugged_get] */
 
 /**
+ * @brief Power the device off via the power management unit (PMU).
+ *
+ * Requests the AXP192 to shut down all of its output rails, fully
+ * powering down the board. This is the same shutdown path triggered by a
+ * long press of the physical power key. If the device is running on
+ * battery, it turns off completely; if external power (USB-C or V-In) is
+ * still connected, the AXP192 remains in its low-power charging state.
+ *
+ * @note On success the ESP32 loses power immediately, so this function
+ * does not return.
+ *
+ * **Example:**
+ *
+ * Power the device off.
+ * @code{c}
+ *  #include "core2foraws.h"
+ *
+ *  void app_main( void )
+ *  {
+ *      core2foraws_init();
+ *      core2foraws_power_off();
+ *  }
+ * @endcode
+ *
+ * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
+ *  - ESP_OK                : Success (does not return on success)
+ *  - ESP_ERR_INVALID_ARG	: Driver parameter error
+ */
+/* @[declare_core2foraws_power_off] */
+esp_err_t core2foraws_power_off( void );
+/* @[declare_core2foraws_power_off] */
+
+/**
  * @brief Get the single register value from the power management 
  * unit (PMU).
  *

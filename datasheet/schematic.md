@@ -23,6 +23,8 @@ Primary components:
 | ESPSRAM64H     | PSRAM                       |
 | TF card socket | microSD storage             |
 | 1027 DC motor  | vibration motor             |
+| SK6812 ×10     | RGB LED chain (add-on)      |
+| TP4057         | Li-ion charger (add-on)     |
 
 ---
 
@@ -46,9 +48,9 @@ Primary components:
 
 | GPIO   | Function               |
 | ------ | ---------------------- |
-| GPIO0  | Boot / speaker control |
+| GPIO0  | Boot / I2S LRCK / mic CLK |
 | GPIO1  | UART TX0               |
-| GPIO2  | speaker I2S            |
+| GPIO2  | speaker I2S data       |
 | GPIO3  | UART RX0               |
 | GPIO4  | SD card                |
 | GPIO5  | LCD CS                 |
@@ -63,12 +65,12 @@ Primary components:
 | GPIO21 | I2C SDA                |
 | GPIO22 | I2C SCL                |
 | GPIO23 | SPI MOSI               |
-| GPIO25 | DAC                    |
-| GPIO26 | DAC                    |
+| GPIO25 | DAC / add-on RGB LED data (SK6812) |
+| GPIO26 | DAC / add-on GPIO socket |
 | GPIO27 | general IO             |
 | GPIO32 | external I2C SDA       |
 | GPIO33 | external I2C SCL       |
-| GPIO34 | ADC                    |
+| GPIO34 | ADC / mic data (PDM)   |
 | GPIO35 | ADC                    |
 | GPIO36 | ADC                    |
 | GPIO38 | SPI MISO               |
@@ -158,9 +160,12 @@ Pins:
 
 | Signal | ESP32    |
 | ------ | -------- |
-| CS     | GPIO17   |
-| CLK    | GPIO16   |
-| SIO0-3 | GPIO7-10 |
+| CS     | GPIO16   |
+| CLK    | GPIO17   |
+| SIO0   | GPIO8    |
+| SIO1   | GPIO7    |
+| SIO2   | GPIO10   |
+| SIO3   | GPIO9    |
 
 ---
 
@@ -238,7 +243,7 @@ Pins:
 | ------ | ------ |
 | SDA    | GPIO21 |
 | SCL    | GPIO22 |
-| INT    | GPIO21 |
+| INT    | not connected |
 
 Clock crystal:
 
@@ -269,12 +274,12 @@ Pins:
 
 ## Microphone
 
-Device: **SPM1423**
+Device: **SPM1423** (located on add-on board)
 
 Interface:
 
 ```
-I2S
+PDM
 ```
 
 Signals:
@@ -283,6 +288,8 @@ Signals:
 | ------ | ------ |
 | DATA   | GPIO34 |
 | CLK    | GPIO0  |
+
+Note: PDM interface (not standard I2S). DATA/CLK reach the add-on board through M5Bus pins 26/24.
 
 ---
 
@@ -299,9 +306,11 @@ Pins:
 | LRCK   | GPIO0  |
 | BCLK   | GPIO12 |
 | DATA   | GPIO2  |
-| CTRL   | GPIO0  |
+| CTRL   | AXP192 GPIO2 |
 
 Speaker output to onboard speaker.
+
+Note: The amplifier enable (CTRL / SPK_EN) is driven by AXP192 GPIO2, not an ESP32 GPIO.
 
 ---
 
@@ -315,13 +324,7 @@ Control:
 VIB_MOTOR
 ```
 
-Driven through transistor.
-
-ESP32 control pin:
-
-```
-GPIO21
-```
+Driven from an AXP192 rail (LDO3), not an ESP32 GPIO.
 
 ---
 
@@ -479,7 +482,7 @@ Connector exposes ESP32 signals.
 
 # External Ports
 
-Three Grove-compatible ports are exposed on the M5Stack Core2 for external "unit" accessories.
+The M5Stack Core2 main board exposes a **single** Grove-compatible port for external "unit" accessories.
 
 ## Port A (Red) — I2C
 
@@ -487,34 +490,14 @@ Connector J4.
 
 | Pin | Signal          | GPIO   |
 | --- | --------------- | ------ |
-| 1   | EXT_I2C_SDA     | GPIO32 |
-| 2   | EXT_I2C_SCL     | GPIO33 |
-| 3   | 5V              | —      |
-| 4   | GND             | —      |
+| 1   | GND             | —      |
+| 2   | 5V              | —      |
+| 3   | EXT_I2C_SDA     | GPIO32 |
+| 4   | EXT_I2C_SCL     | GPIO33 |
 
 Used only for external I2C "unit" accessories. **Not used by any on-board peripheral** — all on-board I2C devices use the internal bus (GPIO21/GPIO22).
 
-## Port B (Black) — DAC / ADC
-
-| Pin | Signal | GPIO   |
-| --- | ------ | ------ |
-| 1   | DAC    | GPIO26 |
-| 2   | ADC    | GPIO36 |
-| 3   | 5V     | —      |
-| 4   | GND    | —      |
-
-Used for analog input/output "unit" devices.
-
-## Port C (Blue) — UART
-
-| Pin | Signal   | GPIO   |
-| --- | -------- | ------ |
-| 1   | UART2_RX | GPIO13 |
-| 2   | UART2_TX | GPIO14 |
-| 3   | 5V       | —      |
-| 4   | GND      | —      |
-
-Used for serial "unit" devices (UART2).
+> **Note:** Port B and Port C do **not** exist on the Core2 main board. The DAC (GPIO26), ADC (GPIO36), and UART2 (GPIO13 RX / GPIO14 TX) signals are only routed over the M5Bus and are broken out on the add-on board's GPIO socket (J2) and UART socket (J1).
 
 ---
 
@@ -526,8 +509,50 @@ Pins:
 
 | Pin | Signal   |
 | --- | -------- |
-| 1   | SYS_VBAT |
-| 2   | GND      |
+| 1   | GND      |
+| 2   | SYS_VBAT |
+
+---
+
+# Add-on Board (Core2 for AWS)
+
+The add-on board mates with the core board through the 30-pin M5Bus.
+
+## RGB LED Chain
+
+Device: **SK6812** × 10 (chain, GRB)
+
+Data path:
+
+```
+GPIO25 (M5Bus pin 8, net "RGB")
+  → R8 (1k) → Q1 (SS8550) base, R7 (4.7k) pull-up to +3.3V
+  → SK6812 data input → LED1 … LED10
+```
+
+Power: +5V (M5Bus pin 28).
+
+> **Note:** The RGB LED data line is **GPIO25** (also the DAC2 pin — mutually exclusive uses). GPIO26 (M5Bus pin 10) is *not* used for the LEDs; it passes through to the add-on GPIO socket J2.
+
+## Expansion Sockets
+
+| Socket | Ref | Pin 1 | Pin 2 | Pin 3 | Pin 4 |
+| ------ | --- | ----- | ----- | ----- | ----- |
+| UART   | J1  | GPIO13 (RX) | GPIO14 (TX) | +5V | GND |
+| GPIO   | J2  | GPIO36 (ADC) | GPIO26 (DAC) | +5V | GND |
+| I2C    | J3  | GND   | +5V (VIN) | GPIO21 (SDA) | GPIO22 (SCL) |
+
+The J3 I2C socket is on the **internal** I2C bus (GPIO21/GPIO22) with 4.7k pull-ups (R2/R3) to +3.3V.
+
+## Battery Charger
+
+Chip: **TP4057** (U3)
+
+```
+VIN → charger → BAT+ (returns to core SYS_VBAT via M5Bus pin 30)
+PROG resistor R9 = 2k
+Status LED D1 (1615RG)
+```
 
 ---
 
@@ -650,10 +675,10 @@ power control
 
 ### Expansion bus
 
-External "unit" modules connect through the Grove ports:
+External "unit" modules connect through the on-board Grove port:
 
 - **Port A** (Red) — I2C (GPIO32/GPIO33)
-- **Port B** (Black) — DAC/ADC (GPIO26/GPIO36)
-- **Port C** (Blue) — UART2 (GPIO13/GPIO14)
+
+The DAC/ADC (GPIO26/GPIO36) and UART2 (GPIO13/GPIO14) signals are not on an on-board Grove port; they reach the add-on board's GPIO socket (J2) and UART socket (J1) over the M5Bus.
 
 The **M5Bus** 30-pin connector joins the core board to the add-on board, carrying power and GPIO signals including the internal I2C bus.

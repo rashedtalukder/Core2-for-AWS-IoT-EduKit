@@ -123,6 +123,10 @@ struct
 
 #define BUTTON_POLL_INTERVAL_MS 20
 
+/* The FT6336U capacitive controller reports a maximum of two concurrent
+ * touch points (datasheet section 14.1). */
+#define BUTTON_TOUCH_POINTS 2
+
 static bool _touch_in_button_region( uint16_t x, uint16_t y,
                                      uint8_t button_index )
 {
@@ -170,20 +174,19 @@ static void button_press_task( void *pvParameters )
     /* Read raw touch data from the controller */
     esp_lcd_touch_read_data( tp );
 
-    uint16_t touch_x = 0;
-    uint16_t touch_y = 0;
+    /* The FT6336U reports up to two simultaneous touch points (datasheet
+     * section 14.1). Reading both lets the user press two of the separate
+     * virtual buttons at the same time. If the controller reports fewer
+     * points, the unused entries are simply ignored. */
     uint8_t  touch_cnt = 0;
-    esp_lcd_touch_point_data_t point_data[ 1 ];
+    esp_lcd_touch_point_data_t point_data[ BUTTON_TOUCH_POINTS ];
 
-    esp_lcd_touch_get_data( tp, point_data, &touch_cnt, 1 );
+    esp_lcd_touch_get_data( tp, point_data, &touch_cnt, BUTTON_TOUCH_POINTS );
 
-    if( touch_cnt > 0 )
+    if( touch_cnt > BUTTON_TOUCH_POINTS )
     {
-      touch_x = point_data[ 0 ].x;
-      touch_y = point_data[ 0 ].y;
+      touch_cnt = BUTTON_TOUCH_POINTS;
     }
-
-    bool any_touch = ( touch_cnt > 0 );
 
     button_event_cb_t press_callbacks[ TOUCH_BUTTON_COUNT ] = { NULL };
     button_event_cb_t release_callbacks[ TOUCH_BUTTON_COUNT ] = { NULL };
@@ -198,8 +201,16 @@ static void button_press_task( void *pvParameters )
 
     for( uint8_t i = 0; i < TOUCH_BUTTON_COUNT; i++ )
     {
-      bool raw_touched =
-          any_touch && _touch_in_button_region( touch_x, touch_y, i );
+      bool raw_touched = false;
+      for( uint8_t p = 0; p < touch_cnt; p++ )
+      {
+        if( _touch_in_button_region( point_data[ p ].x, point_data[ p ].y,
+                                     i ) )
+        {
+          raw_touched = true;
+          break;
+        }
+      }
 
       if( raw_touched != _touch_buttons[ i ].last_touched )
       {

@@ -36,6 +36,38 @@ extern "C" {
 #include <esp_err.h>
 
 /**
+ * @brief Accelerometer full-scale range options for the MPU6886.
+ *
+ * A smaller range gives finer resolution; a larger range measures
+ * stronger accelerations before saturating.
+ */
+/* @[declare_core2foraws_motion_accel_range_t] */
+typedef enum
+{
+    MOTION_ACCEL_RANGE_2G = 0,  /**< @brief ±2 G full-scale range. */
+    MOTION_ACCEL_RANGE_4G,      /**< @brief ±4 G full-scale range. */
+    MOTION_ACCEL_RANGE_8G,      /**< @brief ±8 G full-scale range (default). */
+    MOTION_ACCEL_RANGE_16G,     /**< @brief ±16 G full-scale range. */
+} motion_accel_range_t;
+/* @[declare_core2foraws_motion_accel_range_t] */
+
+/**
+ * @brief Gyroscope full-scale range options for the MPU6886.
+ *
+ * A smaller range gives finer resolution; a larger range measures
+ * faster rotations before saturating.
+ */
+/* @[declare_core2foraws_motion_gyro_range_t] */
+typedef enum
+{
+    MOTION_GYRO_RANGE_250DPS = 0, /**< @brief ±250 °/s full-scale range. */
+    MOTION_GYRO_RANGE_500DPS,     /**< @brief ±500 °/s full-scale range. */
+    MOTION_GYRO_RANGE_1000DPS,    /**< @brief ±1000 °/s full-scale range. */
+    MOTION_GYRO_RANGE_2000DPS,    /**< @brief ±2000 °/s full-scale range (default). */
+} motion_gyro_range_t;
+/* @[declare_core2foraws_motion_gyro_range_t] */
+
+/**
  * @brief Initializes the inertial measurement unit (IMU) motion 
  * sensor driver over I2C.
  * 
@@ -162,6 +194,70 @@ esp_err_t core2foraws_motion_accel_get( float *x, float *y, float *z );
 /* @[declare_core2foraws_motion_gyro_get] */
 esp_err_t core2foraws_motion_gyro_get( float *roll, float *pitch, float *yaw );
 /* @[declare_core2foraws_motion_gyro_get] */
+
+/**
+ * @brief Sets the accelerometer full-scale measurement range.
+ *
+ * A smaller range gives finer resolution but saturates at lower
+ * accelerations; a larger range measures stronger accelerations with
+ * coarser resolution. The MPU6886 powers up at ±8 G by default.
+ *
+ * Per the MPU-6886 datasheet, the first few samples immediately after a
+ * range change may be unsettled and should be discarded.
+ *
+ * **Example:**
+ *
+ * Switch the accelerometer to its ±2 G range for finer resolution.
+ * @code{c}
+ *  #include "core2foraws.h"
+ *
+ *  void app_main( void )
+ *  {
+ *      core2foraws_init();
+ *      core2foraws_motion_accel_range_set( MOTION_ACCEL_RANGE_2G );
+ *  }
+ * @endcode
+ *
+ * @param[in] range The desired accelerometer full-scale range.
+ * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
+ *  - ESP_OK                : Success
+ *  - ESP_ERR_INVALID_ARG	: Driver parameter error
+ */
+/* @[declare_core2foraws_motion_accel_range_set] */
+esp_err_t core2foraws_motion_accel_range_set( motion_accel_range_t range );
+/* @[declare_core2foraws_motion_accel_range_set] */
+
+/**
+ * @brief Sets the gyroscope full-scale measurement range.
+ *
+ * A smaller range gives finer resolution but saturates at lower
+ * rotational speeds; a larger range measures faster rotations with
+ * coarser resolution. The MPU6886 powers up at ±2000 °/s by default.
+ *
+ * Per the MPU-6886 datasheet, the first few samples immediately after a
+ * range change may be unsettled and should be discarded.
+ *
+ * **Example:**
+ *
+ * Switch the gyroscope to its ±250 °/s range for finer resolution.
+ * @code{c}
+ *  #include "core2foraws.h"
+ *
+ *  void app_main( void )
+ *  {
+ *      core2foraws_init();
+ *      core2foraws_motion_gyro_range_set( MOTION_GYRO_RANGE_250DPS );
+ *  }
+ * @endcode
+ *
+ * @param[in] range The desired gyroscope full-scale range.
+ * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
+ *  - ESP_OK                : Success
+ *  - ESP_ERR_INVALID_ARG	: Driver parameter error
+ */
+/* @[declare_core2foraws_motion_gyro_range_set] */
+esp_err_t core2foraws_motion_gyro_range_set( motion_gyro_range_t range );
+/* @[declare_core2foraws_motion_gyro_range_set] */
 
 #ifdef __cplusplus
 }

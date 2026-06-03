@@ -577,10 +577,13 @@ esp_err_t core2foraws_rtc_alarm_set( struct tm alarm_time )
     return ret;
   }
 
-  // Clear any stale alarm flag and enable alarm interrupt.
-  // Per BM8563 datasheet, AF stays set until explicitly cleared. Without
-  // clearing it here, a leftover AF from a previous alarm would cause
-  // core2foraws_rtc_alarm_status() to immediately report a false trigger.
+  // The BM8563 INT pin is NOT wired to the ESP32 on this board (board schema:
+  // rtc.interrupt = null), so the hardware interrupt output cannot be used.
+  // The alarm flag (AF) is still set by hardware on a match regardless of the
+  // AIE interrupt-enable bit, so the alarm is consumed by polling
+  // core2foraws_rtc_alarm_status(). Clear any stale AF here (it latches until
+  // explicitly cleared) and keep AIE disabled because the INT pin drives
+  // nothing.
   uint8_t ctrl2;
   ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
@@ -588,12 +591,11 @@ esp_err_t core2foraws_rtc_alarm_set( struct tm alarm_time )
     return ret;
   }
 
-  ctrl2 &= ~BM8563_CTRL2_AF;
-  ctrl2 |= BM8563_CTRL2_AIE;
+  ctrl2 &= ~( BM8563_CTRL2_AF | BM8563_CTRL2_AIE );
   ret = _bm8563_write_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
   {
-    ESP_LOGE( _TAG, "Failed to enable alarm interrupt: %s",
+    ESP_LOGE( _TAG, "Failed to update alarm control register: %s",
               esp_err_to_name( ret ) );
     return ret;
   }
@@ -831,10 +833,11 @@ esp_err_t core2foraws_rtc_timer_set( uint32_t seconds )
     timer_count = (uint8_t)( ( seconds + 59 ) / 60 ); // Round up
   }
 
-  // Follow the BM8563 datasheet sequence (section 16.4):
+  // Follow the BM8563 datasheet sequence (section 16.4), adapted for this
+  // board where the INT pin is NOT wired (board schema: rtc.interrupt = null):
   // 1. Set timer source (with TE=0 to keep timer disabled)
   // 2. Write countdown value
-  // 3. Clear stale TF flag and enable TIE
+  // 3. Clear stale TF flag (leave TIE disabled; INT pin drives nothing)
   // 4. Enable timer (TE=1)
 
   // Step 1: Disable timer and set frequency source
@@ -854,10 +857,12 @@ esp_err_t core2foraws_rtc_timer_set( uint32_t seconds )
     return ret;
   }
 
-  // Step 3: Clear any stale timer flag and enable timer interrupt.
-  // Per BM8563 datasheet, TF stays set until explicitly cleared. Without
-  // clearing it here, a leftover TF from a previous countdown would cause
-  // core2foraws_rtc_timer_status() to immediately report a false trigger.
+  // Step 3: Clear any stale timer flag. The timer flag (TF) is set by
+  // hardware when the countdown reaches zero regardless of the TIE
+  // interrupt-enable bit, so the timer is consumed by polling
+  // core2foraws_rtc_timer_status(). TF latches until explicitly cleared, so a
+  // leftover TF from a previous countdown would otherwise report a false
+  // trigger. TIE is left disabled because the INT pin is not wired.
   uint8_t ctrl2;
   ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
@@ -865,12 +870,11 @@ esp_err_t core2foraws_rtc_timer_set( uint32_t seconds )
     return ret;
   }
 
-  ctrl2 &= ~BM8563_CTRL2_TF;
-  ctrl2 |= BM8563_CTRL2_TIE;
+  ctrl2 &= ~( BM8563_CTRL2_TF | BM8563_CTRL2_TIE );
   ret = _bm8563_write_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
   {
-    ESP_LOGE( _TAG, "Failed to enable timer interrupt: %s",
+    ESP_LOGE( _TAG, "Failed to update timer control register: %s",
               esp_err_to_name( ret ) );
     return ret;
   }

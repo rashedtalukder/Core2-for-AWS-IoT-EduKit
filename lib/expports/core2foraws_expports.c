@@ -242,14 +242,20 @@ static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode
             err = dac_oneshot_del_channel( _dac_handle );
             _dac_handle = NULL;
         }
-        else if ( current_mode == ADC && _adc_cali_handle != NULL )
+        else if ( current_mode == ADC )
         {
+            /* The calibration handle is only created when a calibration
+             * scheme is available, so it may be NULL even though the ADC
+             * unit was allocated. Tear both down independently. */
+            if ( _adc_cali_handle != NULL )
+            {
 #if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
-            adc_cali_delete_scheme_curve_fitting( _adc_cali_handle );
+                adc_cali_delete_scheme_curve_fitting( _adc_cali_handle );
 #elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
-            adc_cali_delete_scheme_line_fitting( _adc_cali_handle );
+                adc_cali_delete_scheme_line_fitting( _adc_cali_handle );
 #endif
-            _adc_cali_handle = NULL;
+                _adc_cali_handle = NULL;
+            }
             if ( _adc_handle != NULL )
             {
                 adc_oneshot_del_unit( _adc_handle );

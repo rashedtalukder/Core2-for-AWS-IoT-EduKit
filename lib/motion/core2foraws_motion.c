@@ -55,3 +55,23 @@ esp_err_t core2foraws_motion_gyro_get( float *roll, float *pitch, float *yaw )
 {
     return mpu6886_gyro_data_get( roll, pitch, yaw );
 }
+
+esp_err_t core2foraws_motion_accel_range_set( motion_accel_range_t range )
+{
+    if ( range < MOTION_ACCEL_RANGE_2G || range > MOTION_ACCEL_RANGE_16G )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return mpu6886_fsr_accel_set( ( acc_scale_t )range );
+}
+
+esp_err_t core2foraws_motion_gyro_range_set( motion_gyro_range_t range )
+{
+    if ( range < MOTION_GYRO_RANGE_250DPS || range > MOTION_GYRO_RANGE_2000DPS )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return mpu6886_fsr_gyro_set( ( gyro_scale_t )range );
+}

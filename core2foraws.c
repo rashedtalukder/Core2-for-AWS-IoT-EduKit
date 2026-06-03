@@ -39,7 +39,9 @@ esp_err_t core2foraws_init( void )
   ESP_LOGI( _TAG, "\tInitializing" );
 
 #ifdef CONFIG_SOFTWARE_BSP_SUPPORT
-  /* Initialize the internal I2C bus before any peripheral that uses it */
+  /* The internal I2C bus (GPIO21/GPIO22) is the foundation for the AXP192
+   * PMU, BM8563 RTC, FT6336 touch controller, MPU6886 IMU, and ATECC608
+   * secure element. It must come up before any of those peripherals. */
   err = core2foraws_i2c_init( CORE2FORAWS_I2C_INTERNAL );
   if( err != ESP_OK )
   {
@@ -47,6 +49,11 @@ esp_err_t core2foraws_init( void )
     return err;
   }
 
+  /* The AXP192 PMU must be initialized second: it brings up the peripheral
+   * rails (display logic/SD on LDO2, backlight on DCDC3), enables the 5V
+   * boost bus that powers the SK6812 RGB LEDs, drives the speaker-amp
+   * enable, and performs the LCD/touch reset pulse on AXP192 GPIO4. The
+   * display and RGB LED drivers therefore depend on this step. */
   err = core2foraws_power_init();
   if( err != ESP_OK )
     ESP_LOGE( _TAG, "\tError initializing power. Error 0x%x", err );
@@ -56,15 +63,10 @@ esp_err_t core2foraws_init( void )
             Must be enabled in the application KConfig menu" );
 #endif
 
-#ifdef CONFIG_SOFTWARE_WIFI_SUPPORT
-  err = core2foraws_wifi_init();
-  if( err != ESP_OK )
-    ESP_LOGE( _TAG,
-              "\tError initializing Wi-Fi provisioning over BLE. Error 0x%x",
-              err );
-  ret |= err;
-#endif
-
+  /* Display (ILI9342C LCD + FT6336 touch). Depends on the AXP192 having
+   * raised the LCD logic/backlight rails and released the LCD/touch reset
+   * line (AXP192 GPIO4), and on the internal I2C bus for the touch
+   * controller. */
 #ifdef CONFIG_SOFTWARE_DISPLAY_SUPPORT
   err = core2foraws_display_init();
   if( err != ESP_OK )
@@ -72,6 +74,16 @@ esp_err_t core2foraws_init( void )
   ret |= err;
 #endif
 
+  /* Virtual touch buttons. These read the FT6336 touch controller, so the
+   * display/touch stack must already be initialized. */
+#ifdef CONFIG_SOFTWARE_BUTTON_SUPPORT
+  err = core2foraws_button_init();
+  if( err != ESP_OK )
+    ESP_LOGE( _TAG, "\tError initializing button. Error 0x%x", err );
+  ret |= err;
+#endif
+
+  /* Internal I2C sensors. All share the bus brought up above. */
 #ifdef CONFIG_SOFTWARE_MOTION_SUPPORT
   err = core2foraws_motion_init();
   if( err != ESP_OK )
@@ -86,6 +98,9 @@ esp_err_t core2foraws_init( void )
   ret |= err;
 #endif
 
+  /* ATECC608 secure element. It shares the internal I2C bus and has
+   * non-standard wake/sleep timing, so it is initialized after the other
+   * I2C peripherals. */
 #ifdef CONFIG_SOFTWARE_CRYPTO_SUPPORT
   err = core2foraws_crypto_init();
   if( err != ESP_OK )
@@ -95,6 +110,8 @@ esp_err_t core2foraws_init( void )
   ret |= err;
 #endif
 
+  /* SK6812 RGB LED chain (add-on board, GPIO25). Driven from the 5V boost
+   * bus enabled during power_init, so it must come after the PMU. */
 #ifdef CONFIG_SOFTWARE_RGB_LED_SUPPORT
   err = core2foraws_rgb_led_init();
   if( err != ESP_OK )
@@ -102,10 +119,14 @@ esp_err_t core2foraws_init( void )
   ret |= err;
 #endif
 
-#ifdef CONFIG_SOFTWARE_BUTTON_SUPPORT
-  err = core2foraws_button_init();
+  /* Wi-Fi / BLE provisioning helper. This is independent of the board power
+   * sequencing and on-board peripherals, so it is initialized last. */
+#ifdef CONFIG_SOFTWARE_WIFI_SUPPORT
+  err = core2foraws_wifi_init();
   if( err != ESP_OK )
-    ESP_LOGE( _TAG, "\tError initializing button. Error 0x%x", err );
+    ESP_LOGE( _TAG,
+              "\tError initializing Wi-Fi provisioning over BLE. Error 0x%x",
+              err );
   ret |= err;
 #endif
 

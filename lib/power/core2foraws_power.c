@@ -146,10 +146,11 @@ esp_err_t core2foraws_power_init( void )
         }
     }
 
-    /* Disable VBUS current limit, keep reserved bit 2 intact,
-       enable current limit mode at 100mA as a safety default. */
+    /* REG30H: disable VHOLD pass-through limiting and enable the VBUS
+       current limit. Reserved bit 2 is preserved; the current-limit value
+       bit (bit 0) is left cleared, which selects the 500mA limit. */
     if ( core2foraws_power_axp_twiddle( AXP192_VBUS_IPSOUT_CHANNEL,
-            (uint8_t)~AXP192_STATUS_BAT_DIRECTION, /* preserve bit 2 */
+            (uint8_t)~AXP192_STATUS_BAT_DIRECTION, /* preserve reserved bit 2 */
             AXP192_VBUS_CTL_CUR_LIMIT_EN ) == ESP_OK )
     {
         ESP_LOGI(_TAG, "\tVBUS current limit configured");
@@ -413,6 +414,16 @@ esp_err_t core2foraws_power_plugged_get( bool *status )
     *status = ( ( reg_val >> 7 ) & 1U );
 
     return ESP_OK;
+}
+
+esp_err_t core2foraws_power_off( void )
+{
+    /* REG32H bit 7 requests the AXP192 to shut down all rails. This is the
+     * same path the PEK long-press triggers (configured during init). Once
+     * set, the ESP32 loses power, so this call does not return on success. */
+    return core2foraws_power_axp_twiddle( AXP192_SHUTDOWN_BATTERY_CHGLED_CONTROL,
+                                          AXP192_POWER_OFF_REQUEST,
+                                          AXP192_POWER_OFF_REQUEST );
 }
 
 esp_err_t core2foraws_power_axp_reg_get( uint8_t reg, uint8_t *buffer )

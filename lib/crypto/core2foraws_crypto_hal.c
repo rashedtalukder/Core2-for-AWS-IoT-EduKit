@@ -32,6 +32,27 @@ static const char *TAG = "ATECC608_HAL";
 static i2c_master_dev_handle_t _atecc_dev = NULL;
 
 /**
+ * @brief Drive the ATECC608 wake pulse on SDA under the shared-bus lock.
+ *
+ * The wake pulse manipulates SDA directly through GPIO rather than the
+ * I2C driver, so it must hold the internal-bus lock for the duration of
+ * the pulse. The internal I2C bus is shared with the AXP192, BM8563,
+ * touch panel, and MPU6886; without the lock the 80 µs SDA-low pulse
+ * would corrupt a concurrent transaction to one of those devices.
+ */
+static void _atecc_wake_pulse( void )
+{
+    core2foraws_i2c_lock( CORE2FORAWS_I2C_INTERNAL );
+    gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_OUTPUT_OD );
+    gpio_set_level( ATECC_SDA_PIN, 0 );
+    esp_rom_delay_us( 80 );
+    gpio_set_level( ATECC_SDA_PIN, 1 );
+    /* Restore SDA to I2C peripheral control */
+    gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_INPUT_OUTPUT_OD );
+    core2foraws_i2c_unlock( CORE2FORAWS_I2C_INTERNAL );
+}
+
+/**
  * @brief Send the ATECC608 I2C wake pulse and verify the response.
  *
  * The ATECC608 wakes when SDA is held low for ≥60 µs (tWLO).  Rather
@@ -53,13 +74,9 @@ static ATCA_STATUS _atecc_wake( ATCAIface iface )
         return ATCA_BAD_PARAM;
     }
 
-    /* Drive SDA low for ≥60 µs to wake the ATECC608 */
-    gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_OUTPUT_OD );
-    gpio_set_level( ATECC_SDA_PIN, 0 );
-    esp_rom_delay_us( 80 );
-    gpio_set_level( ATECC_SDA_PIN, 1 );
-    /* Restore SDA to I2C peripheral control */
-    gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_INPUT_OUTPUT_OD );
+    /* Drive SDA low for ≥60 µs to wake the ATECC608, serialized against
+     * other devices sharing the internal I2C bus */
+    _atecc_wake_pulse();
 
     /* Wait tWHI + tWLO */
     atca_delay_us( cfg->wake_delay );
@@ -139,12 +156,9 @@ ATCA_STATUS __wrap_hal_i2c_send( ATCAIface iface, uint8_t word_address,
         uint16_t cur_addr = ATCA_IFACECFG_I2C_ADDRESS( iface->mIfaceCFG );
         if( cur_addr == 0x00 )
         {
-            /* Wake pulse — drive SDA low via GPIO instead of I2C driver */
-            gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_OUTPUT_OD );
-            gpio_set_level( ATECC_SDA_PIN, 0 );
-            esp_rom_delay_us( 80 );
-            gpio_set_level( ATECC_SDA_PIN, 1 );
-            gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_INPUT_OUTPUT_OD );
+            /* Wake pulse — drive SDA low via GPIO instead of I2C driver,
+             * serialized against other devices on the shared internal bus */
+            _atecc_wake_pulse();
             return ATCA_SUCCESS;
         }
     }
