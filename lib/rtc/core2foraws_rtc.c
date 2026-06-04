@@ -29,6 +29,12 @@
 #include "core2foraws_common.h"
 #include "core2foraws_rtc.h"
 
+// timegm() is provided by ESP-IDF's newlib but its prototype is guarded behind
+// feature-test macros (e.g. _DEFAULT_SOURCE / _GNU_SOURCE) that are not
+// guaranteed to be enabled in this translation unit. Declare it explicitly to
+// avoid an implicit-declaration warning/error.
+extern time_t timegm( struct tm *tm );
+
 static const char *_TAG = "CORE2FORAWS_RTC";
 
 static i2c_master_dev_handle_t _bm8563_dev = NULL;
