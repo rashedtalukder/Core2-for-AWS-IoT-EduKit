@@ -50,7 +50,7 @@
 #define PROV_POP_STR_SIZE    9
 #define QRCODE_BASE_URL "https://espressif.github.io/esp-jumpstart/qrcode.html"
 
-static const char *_TAG = "CORE2AWS_WIFI";
+static const char *_TAG = "CORE2FORAWS_WIFI";
 
 EventGroupHandle_t wifi_event_group = NULL;
 
@@ -93,8 +93,11 @@ static void _on_prov_event_handler( void *arg, esp_event_base_t event_base, int3
         ESP_LOGI( _TAG, "\tReceived Wi-Fi credentials"
                     "\n\tSSID     : %s",
                     ( const char * ) wifi_sta_cfg->ssid );
-        ESP_LOGD( _TAG, "\tPassword : %s",
-                    ( const char * ) wifi_sta_cfg->password );
+        /* Never log the plaintext password. Log its length only so the
+           credential delivery can still be debugged without leaking the
+           secret over the UART console. */
+        ESP_LOGD( _TAG, "\tPassword : (%u characters received)",
+                    ( unsigned int ) strlen( ( const char * ) wifi_sta_cfg->password ) );
     }
     else if ( event_id == WIFI_PROV_CRED_FAIL )
     {

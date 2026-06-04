@@ -128,8 +128,13 @@ esp_err_t core2foraws_sd_mount( void )
     xSemaphoreGive( core2foraws_common_spi_semaphore );
     if ( err == ESP_OK )
     {
-        ESP_LOGD( _TAG, "Mounted SD card %s with mount point %s", card->cid.name, _mount_path );
+        ESP_LOGI( _TAG, "Mounted SD card %s at mount point %s", card->cid.name, _mount_path );
         _sd_card = card;
+    }
+    else
+    {
+        ESP_LOGE( _TAG, "Failed to mount SD card at %s: 0x%x (%s)",
+                  _mount_path, err, esp_err_to_name( err ) );
     }
     
     vTaskDelay( pdMS_TO_TICKS( SD_ACCESS_DELAY_MS ) );
@@ -171,7 +176,7 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
     if ( f == NULL )
     {
         err = ESP_FAIL;
-        ESP_LOGI( _TAG, "Failed to open SD card path %s", path );
+        ESP_LOGE( _TAG, "Failed to open SD card path %s", path );
         goto cleanup;
     }
 
@@ -181,7 +186,11 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
     if( ferror( f ) )
     {
         err = ESP_FAIL;
-        ESP_LOGI( _TAG, "Failed to read from SD card" );
+        ESP_LOGE( _TAG, "Failed to read from SD card" );
+    }
+    else
+    {
+        ESP_LOGV( _TAG, "Read %u bytes from %s", ( unsigned int ) bytes_read, path );
     }
 
 cleanup:
@@ -235,7 +244,7 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
     f = fopen(path, "w");
     if (f == NULL) {
         err = ESP_FAIL;
-        ESP_LOGD( _TAG, "Failed to open SD card" );
+        ESP_LOGE( _TAG, "Failed to open SD card path %s for writing", path );
         *wrote_length = 0;
         goto cleanup;
     }
@@ -244,12 +253,13 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
     if ( wrote < 0 )
     {
         err = ESP_FAIL;
-        ESP_LOGD( _TAG, "Failed to write to SD card" );
+        ESP_LOGE( _TAG, "Failed to write to SD card" );
         *wrote_length = 0;
     }
     else
     {
         *wrote_length = wrote;
+        ESP_LOGV( _TAG, "Wrote %ld bytes to %s", ( long ) wrote, path );
     }
 
 cleanup:

@@ -371,6 +371,10 @@ esp_err_t core2foraws_rtc_utc_time_get( struct tm *time )
   // Convert hardware registers to UTC time struct (no timezone conversion here)
   _bm8563_to_tm( time_regs, time );
 
+  ESP_LOGV( _TAG, "UTC %04d-%02d-%02d %02d:%02d:%02d",
+            time->tm_year + 1900, time->tm_mon + 1, time->tm_mday,
+            time->tm_hour, time->tm_min, time->tm_sec );
+
   return ESP_OK;
 }
 

@@ -27,6 +27,17 @@ static const char *_TAG = "CORE2FORAWS_I2C";
 
 #define I2C_LOCK_TIMEOUT_MS 1000
 
+/* Per-transfer timeout (milliseconds) passed to the i2c_master driver. A
+ * bounded value ensures a stuck or clock-stretching device cannot block the
+ * caller forever while holding the per-bus mutex. */
+#define I2C_XFER_TIMEOUT_MS 1000
+
+/* Stack buffer size for register writes (register address + payload). Writes
+ * that fit are served without a heap allocation; larger writes fall back to
+ * malloc. Sized to cover the common 1-2 byte register writes plus a small
+ * multi-byte payload. */
+#define I2C_WRITE_STACK_BUF_SIZE 32
+
 /* Per-bus state */
 static i2c_master_bus_handle_t _bus_handle[ CORE2FORAWS_I2C_PORT_MAX ] = { NULL, NULL };
 static SemaphoreHandle_t _bus_mutex[ CORE2FORAWS_I2C_PORT_MAX ] = { NULL, NULL };
@@ -144,7 +155,21 @@ esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
         .scl_speed_hz = scl_speed_hz,
     };
 
-    return i2c_master_bus_add_device( _bus_handle[ port ], &dev_cfg, dev_handle );
+    esp_err_t err = i2c_master_bus_add_device( _bus_handle[ port ], &dev_cfg, dev_handle );
+    if( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "Failed to add device 0x%02x on port %d: 0x%x",
+                  dev_addr, port, err );
+    }
+    else
+    {
+        /* One line per device (registration is rare), so this is safe to
+           leave on without flooding the console. */
+        ESP_LOGV( _TAG, "Added device 0x%02x on port %d at %lu Hz",
+                  dev_addr, port, ( unsigned long ) scl_speed_hz );
+    }
+
+    return err;
 }
 
 esp_err_t core2foraws_i2c_device_remove( i2c_master_dev_handle_t dev_handle )
@@ -186,7 +211,8 @@ esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
     if( reg & CORE2FORAWS_I2C_NO_REG )
     {
         /* No register address — direct read */
-        err = i2c_master_receive( dev_handle, buffer, size, -1 );
+        err = i2c_master_receive( dev_handle, buffer, size,
+                                  I2C_XFER_TIMEOUT_MS );
     }
     else
     {
@@ -207,7 +233,8 @@ esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
         }
 
         err = i2c_master_transmit_receive( dev_handle, reg_buf, reg_len,
-                                           buffer, size, -1 );
+                                           buffer, size,
+                                           I2C_XFER_TIMEOUT_MS );
     }
 
     xSemaphoreGive( _bus_mutex[ port ] );
@@ -242,7 +269,8 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
     if( reg & CORE2FORAWS_I2C_NO_REG )
     {
         /* No register address — direct write */
-        err = i2c_master_transmit( dev_handle, buffer, size, -1 );
+        err = i2c_master_transmit( dev_handle, buffer, size,
+                                   I2C_XFER_TIMEOUT_MS );
     }
     else
     {
@@ -257,11 +285,26 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
             reg_len = 1;
         }
 
-        uint8_t *tx_buf = malloc( reg_len + size );
-        if( tx_buf == NULL )
+        /* Most register writes are a few bytes, so serve them from a stack
+           buffer and avoid heap churn on this hot path. Fall back to a
+           heap allocation only for unusually large payloads. */
+        uint8_t stack_buf[ I2C_WRITE_STACK_BUF_SIZE ];
+        uint8_t *tx_buf;
+        bool tx_buf_heap = false;
+
+        if( (size_t)reg_len + size <= sizeof( stack_buf ) )
         {
-            xSemaphoreGive( _bus_mutex[ port ] );
-            return ESP_ERR_NO_MEM;
+            tx_buf = stack_buf;
+        }
+        else
+        {
+            tx_buf = malloc( reg_len + size );
+            if( tx_buf == NULL )
+            {
+                xSemaphoreGive( _bus_mutex[ port ] );
+                return ESP_ERR_NO_MEM;
+            }
+            tx_buf_heap = true;
         }
 
         if( reg_len == 2 )
@@ -279,8 +322,12 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
             memcpy( tx_buf + reg_len, buffer, size );
         }
 
-        err = i2c_master_transmit( dev_handle, tx_buf, reg_len + size, -1 );
-        free( tx_buf );
+        err = i2c_master_transmit( dev_handle, tx_buf, reg_len + size,
+                                   I2C_XFER_TIMEOUT_MS );
+        if( tx_buf_heap )
+        {
+            free( tx_buf );
+        }
     }
 
     xSemaphoreGive( _bus_mutex[ port ] );

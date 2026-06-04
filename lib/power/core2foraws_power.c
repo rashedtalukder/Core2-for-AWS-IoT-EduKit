@@ -78,7 +78,7 @@ typedef struct
     uint8_t voltage_mask;
 } axp192_rail_cfg_t;
 
-static const axp192_rail_cfg_t _axp192_rail_configs[] = 
+static const axp192_rail_cfg_t _axp192_rail_configs[ POWER_RAIL_COUNT ] =
 {
     [ POWER_RAIL_DCDC1 ] =
     {
@@ -146,69 +146,88 @@ esp_err_t core2foraws_power_init( void )
         }
     }
 
+    /* Accumulate the first failure across the bring-up steps so a failed PMU
+       configuration is reported to the caller instead of being silently
+       swallowed. */
+    esp_err_t ret = ESP_OK;
+    esp_err_t err;
+
     /* REG30H: disable VHOLD pass-through limiting and enable the VBUS
        current limit. Reserved bit 2 is preserved; the current-limit value
        bit (bit 0) is left cleared, which selects the 500mA limit. */
-    if ( core2foraws_power_axp_twiddle( AXP192_VBUS_IPSOUT_CHANNEL,
+    err = core2foraws_power_axp_twiddle( AXP192_VBUS_IPSOUT_CHANNEL,
             (uint8_t)~AXP192_STATUS_BAT_DIRECTION, /* preserve reserved bit 2 */
-            AXP192_VBUS_CTL_CUR_LIMIT_EN ) == ESP_OK )
-    {
+            AXP192_VBUS_CTL_CUR_LIMIT_EN );
+    if ( err == ESP_OK )
         ESP_LOGI(_TAG, "\tVBUS current limit configured");
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
     /* Set GPIO2 to NMOS open-drain output mode (bits[2:0]=0),
        then pull speaker enable low to disable the amplifier. */
-    if ( core2foraws_power_axp_twiddle( AXP192_GPIO2_CONTROL, AXP192_GPIO_MODE_MASK, 0x00 ) == ESP_OK &&
-        core2foraws_power_speaker_enable( false ) == ESP_OK )
-    {
+    err = core2foraws_power_axp_twiddle( AXP192_GPIO2_CONTROL, AXP192_GPIO_MODE_MASK, 0x00 );
+    if ( err == ESP_OK )
+        err = core2foraws_power_speaker_enable( false );
+    if ( err == ESP_OK )
         ESP_LOGI(_TAG, "\tSpeaker amplifier off");
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
     /* Enable RTC backup battery charging at 3.0V, 200uA.
        REG35H: bit7=enable, bits[6:5]=voltage, bits[1:0]=current */
-    if ( core2foraws_power_axp_twiddle( AXP192_BATTERY_CHARGE_CONTROL,
+    err = core2foraws_power_axp_twiddle( AXP192_BATTERY_CHARGE_CONTROL,
             AXP192_BACKUP_CHG_ENABLE | AXP192_BACKUP_VOLT_MASK | AXP192_BACKUP_CUR_MASK,
             AXP192_BACKUP_CHG_ENABLE
             | (AXP192_BACKUP_VOLT_3V0 << AXP192_BACKUP_VOLT_SHIFT)
-            | (AXP192_BACKUP_CUR_200UA << AXP192_BACKUP_CUR_SHIFT) ) == ESP_OK )
-    {
+            | (AXP192_BACKUP_CUR_200UA << AXP192_BACKUP_CUR_SHIFT) );
+    if ( err == ESP_OK )
         ESP_LOGI( _TAG, "\tRTC battery charging enabled (3.0V, 200uA)" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
-    if ( core2foraws_power_rail_mv_set( POWER_RAIL_ESP32, 3350 ) == ESP_OK &&
-        core2foraws_power_rail_state_set( POWER_RAIL_ESP32, true ) == ESP_OK )
-    {
+    err = core2foraws_power_rail_mv_set( POWER_RAIL_ESP32, 3350 );
+    if ( err == ESP_OK )
+        err = core2foraws_power_rail_state_set( POWER_RAIL_ESP32, true );
+    if ( err == ESP_OK )
         ESP_LOGI( _TAG, "\tESP32 power voltage set to 3.35V" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
-    if ( core2foraws_power_backlight_set( DISPLAY_BACKLIGHT_START )  == ESP_OK ) 
-    {
+    err = core2foraws_power_backlight_set( DISPLAY_BACKLIGHT_START );
+    if ( err == ESP_OK )
         ESP_LOGI( _TAG, "\tDisplay backlight level set to %d%%", DISPLAY_BACKLIGHT_START );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
-    if ( core2foraws_power_rail_mv_set( POWER_RAIL_LOGIC_AND_SD, 3300 ) == ESP_OK &&
-        core2foraws_power_rail_state_set( POWER_RAIL_LOGIC_AND_SD, true ) == ESP_OK )
-    {
+    err = core2foraws_power_rail_mv_set( POWER_RAIL_LOGIC_AND_SD, 3300 );
+    if ( err == ESP_OK )
+        err = core2foraws_power_rail_state_set( POWER_RAIL_LOGIC_AND_SD, true );
+    if ( err == ESP_OK )
         ESP_LOGI( _TAG, "\tDisplay logic and SD card voltage set to 3.3V" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
-    if ( core2foraws_power_rail_mv_set( POWER_RAIL_VIBRATOR, 2000) == ESP_OK )
-    {
+    err = core2foraws_power_rail_mv_set( POWER_RAIL_VIBRATOR, 2000 );
+    if ( err == ESP_OK )
         ESP_LOGI( _TAG, "\tVibrator voltage preset to 2.0V" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
     /* Set GPIO1 to NMOS open-drain output mode for green LED control. */
-    if (core2foraws_power_axp_twiddle( AXP192_GPIO1_CONTROL, AXP192_GPIO_MODE_MASK, 0x00 ) == ESP_OK &&
-        core2foraws_power_led_enable( true ) == ESP_OK )
-    {
+    err = core2foraws_power_axp_twiddle( AXP192_GPIO1_CONTROL, AXP192_GPIO_MODE_MASK, 0x00 );
+    if ( err == ESP_OK )
+        err = core2foraws_power_led_enable( true );
+    if ( err == ESP_OK )
         ESP_LOGI( _TAG, "\tGreen LED on" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
     /* Set charge current to 100mA (bits[3:0] = 0 = lowest setting). */
-    if (core2foraws_power_axp_twiddle( AXP192_CHARGE_CONTROL_1, AXP192_CHG1_CURRENT_MASK, 0x00 ) == ESP_OK )
-    {
+    err = core2foraws_power_axp_twiddle( AXP192_CHARGE_CONTROL_1, AXP192_CHG1_CURRENT_MASK, 0x00 );
+    if ( err == ESP_OK )
         ESP_LOGI( _TAG, "\tCharge current set to 100 mA" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
 	float volts;
 	if (core2foraws_power_axp_read( AXP192_BATTERY_VOLTAGE, &volts ) == ESP_OK)
@@ -218,39 +237,47 @@ esp_err_t core2foraws_power_init( void )
 
     /* PEK (power key) config: 0x4c = 128ms startup, 4s long-press shutdown,
        1s shutdown delay, power-key auto-shutdown enabled. */
-    if ( core2foraws_power_axp_twiddle( AXP192_PEK, 0xff, 0x4c ) == ESP_OK )
-    {
+    err = core2foraws_power_axp_twiddle( AXP192_PEK, 0xff, 0x4c );
+    if ( err == ESP_OK )
     	ESP_LOGI( _TAG, "\tPower key set, 4 seconds for hard shutdown" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
     /* Enable all ADC channels: battery, ACIN, VBUS, APS, TS voltages & currents. */
-    if ( core2foraws_power_axp_twiddle( AXP192_ADC_ENABLE_1, 0xff, 0xff ) == ESP_OK )
-    {
+    err = core2foraws_power_axp_twiddle( AXP192_ADC_ENABLE_1, 0xff, 0xff );
+    if ( err == ESP_OK )
     	ESP_LOGI( _TAG, "\tEnabled all ADC channels" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 
-    if ( _core2foraws_power_int_5v_enable( true ) == ESP_OK ) 
-    {
+    err = _core2foraws_power_int_5v_enable( true );
+    if ( err == ESP_OK )
     	ESP_LOGI( _TAG, "\tUSB / battery powered, 5V bus on" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
 	
 	/* Configure GPIO4 as NMOS open-drain for LCD/touch reset control.
 	   REG95H: bit7 = GPIO3/4 function enable, bits[3:2] = GPIO4 mode.
 	   0x84 = enable GPIO3/4 functions, GPIO4 = NMOS output. */
-	core2foraws_power_axp_twiddle( AXP192_GPIO43_FUNCTION_CONTROL, (uint8_t)~0x72, 0x84 );
+	err = core2foraws_power_axp_twiddle( AXP192_GPIO43_FUNCTION_CONTROL, (uint8_t)~0x72, 0x84 );
+    if ( err != ESP_OK && ret == ESP_OK )
+        ret = err;
 
     /* Pull GPIO4 low to reset display and touch controller. */
-    core2foraws_power_axp_twiddle( AXP192_GPIO43_SIGNAL_STATUS, 0x02, 0x00 );
+    err = core2foraws_power_axp_twiddle( AXP192_GPIO43_SIGNAL_STATUS, 0x02, 0x00 );
+    if ( err != ESP_OK && ret == ESP_OK )
+        ret = err;
     vTaskDelay( pdMS_TO_TICKS ( 100 ) );
 
     /* Release reset by pulling GPIO4 high. */
-    if ( core2foraws_power_axp_twiddle( AXP192_GPIO43_SIGNAL_STATUS, 0x02, 0x02 ) == ESP_OK )
-    {
+    err = core2foraws_power_axp_twiddle( AXP192_GPIO43_SIGNAL_STATUS, 0x02, 0x02 );
+    if ( err == ESP_OK )
     	ESP_LOGI( _TAG, "\tDisplay and touch reset" );
-    }
+    else if ( ret == ESP_OK )
+        ret = err;
     vTaskDelay( pdMS_TO_TICKS( 300 ) );
     
-    return ESP_OK;
+    return ret;
 }
 
 static esp_err_t _core2foraws_power_int_5v_enable( bool state ) 

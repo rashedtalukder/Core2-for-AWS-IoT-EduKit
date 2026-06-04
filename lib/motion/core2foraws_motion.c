@@ -38,22 +38,42 @@ static const char *_TAG = "CORE2FORAWS_MOTION";
 esp_err_t core2foraws_motion_init( void )
 {
     ESP_LOGI( _TAG, "\tInitializing" );
-    return mpu6886_init( COMMON_I2C_INTERNAL );
+    esp_err_t err = mpu6886_init( COMMON_I2C_INTERNAL );
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "\tMPU6886 init failed: 0x%x", err );
+    }
+    return err;
 }
 
 esp_err_t core2foraws_motion_temperature_get( float *temperature )
 {
-    return mpu6886_temp_data_get( temperature );
+    esp_err_t err = mpu6886_temp_data_get( temperature );
+    if ( err == ESP_OK )
+    {
+        ESP_LOGV( _TAG, "temperature=%.2f C", *temperature );
+    }
+    return err;
 }
 
 esp_err_t core2foraws_motion_accel_get( float *x, float *y, float *z )
 {
-    return mpu6886_accel_data_get( x, y, z );
+    esp_err_t err = mpu6886_accel_data_get( x, y, z );
+    if ( err == ESP_OK )
+    {
+        ESP_LOGV( _TAG, "accel x=%.3f y=%.3f z=%.3f g", *x, *y, *z );
+    }
+    return err;
 }
 
 esp_err_t core2foraws_motion_gyro_get( float *roll, float *pitch, float *yaw )
 {
-    return mpu6886_gyro_data_get( roll, pitch, yaw );
+    esp_err_t err = mpu6886_gyro_data_get( roll, pitch, yaw );
+    if ( err == ESP_OK )
+    {
+        ESP_LOGV( _TAG, "gyro roll=%.3f pitch=%.3f yaw=%.3f dps", *roll, *pitch, *yaw );
+    }
+    return err;
 }
 
 esp_err_t core2foraws_motion_accel_range_set( motion_accel_range_t range )

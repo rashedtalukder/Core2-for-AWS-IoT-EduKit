@@ -99,7 +99,11 @@ esp_err_t core2foraws_rgb_led_init( void )
 
     esp_err_t err;
     err = rmt_new_tx_channel( &tx_chan_config, &_rmt_channel );
-    if ( err != ESP_OK ) return err;
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "Failed to create RMT TX channel on GPIO%d: 0x%x", SK6812_GPIO, err );
+        return err;
+    }
 
     /* Create bytes encoder for SK6812 protocol */
     rmt_bytes_encoder_config_t bytes_encoder_config = {
@@ -121,6 +125,7 @@ esp_err_t core2foraws_rgb_led_init( void )
     err = rmt_new_bytes_encoder( &bytes_encoder_config, &_rmt_encoder );
     if ( err != ESP_OK )
     {
+        ESP_LOGE( _TAG, "Failed to create RMT bytes encoder: 0x%x", err );
         rmt_del_channel( _rmt_channel );
         _rmt_channel = NULL;
         return err;
@@ -129,6 +134,7 @@ esp_err_t core2foraws_rgb_led_init( void )
     err = rmt_enable( _rmt_channel );
     if ( err != ESP_OK )
     {
+        ESP_LOGE( _TAG, "Failed to enable RMT channel: 0x%x", err );
         rmt_del_encoder( _rmt_encoder );
         rmt_del_channel( _rmt_channel );
         _rmt_encoder = NULL;
@@ -205,6 +211,14 @@ esp_err_t core2foraws_rgb_led_brightness_set( uint8_t brightness )
 esp_err_t core2foraws_rgb_led_write( void )
 {
     esp_err_t err;
+
+    /* The RMT channel and encoder are only valid after initialization.
+       Guard against use before init to avoid passing a NULL handle to the
+       RMT driver. */
+    if ( !_initialised )
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
 
     /* Apply brightness scaling to a separate TX buffer */
     if ( _brightness != 255 )
