@@ -259,7 +259,8 @@ esp_err_t core2foraws_display_init( void )
             .mirror_y = false,
         },
         .flags = {
-            .buff_spiram = true,
+            .buff_dma    = true,
+            .buff_spiram = false,
             .swap_bytes  = true,
         },
     };
