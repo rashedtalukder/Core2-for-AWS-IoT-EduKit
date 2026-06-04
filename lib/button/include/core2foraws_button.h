@@ -158,10 +158,12 @@ extern "C"
    *  - ESP_OK    : Success
    *  - ESP_FAIL  : Failed to register callback
    */
+  /* @[declare_core2foraws_button_register_callback] */
   esp_err_t
   core2foraws_button_register_callback( enum core2foraws_button_btns button,
                                         press_event_t events,
                                         button_event_cb_t callback );
+  /* @[declare_core2foraws_button_register_callback] */
 
   /**
    * @brief Unregister a callback function for button events.
@@ -174,9 +176,11 @@ extern "C"
    *  - ESP_OK    : Success
    *  - ESP_FAIL  : Failed to unregister callback
    */
+  /* @[declare_core2foraws_button_unregister_callback] */
   esp_err_t
   core2foraws_button_unregister_callback( enum core2foraws_button_btns button,
                                           press_event_t events );
+  /* @[declare_core2foraws_button_unregister_callback] */
 
   /**
    * @brief Initializes the virtual buttons using the ft6336u touch

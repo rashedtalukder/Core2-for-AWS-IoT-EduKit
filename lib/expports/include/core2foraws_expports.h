@@ -271,7 +271,7 @@ esp_err_t core2foraws_expports_digital_read( gpio_num_t pin, bool *level );
  * @endcode
  *
  * @param[in] pin The GPIO pin to write.
- * @param[out] level The digital level of the pin reading.
+ * @param[in] level The digital level to write to the pin.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK    : Success
  *  - ESP_FAIL	: Failed to write
@@ -361,11 +361,14 @@ esp_err_t core2foraws_expports_pin_reset( gpio_num_t pin );
  *      
  *      if ( err == ESP_OK)
  *      {
+ *          i2c_master_dev_handle_t dev_handle;
+ *          err = core2foraws_expports_i2c_device_add( DEVICE_ADDRESS, 400000, &dev_handle );
+ * 
  *          uint8_t heart_rate = 255;
  * 
  *          for( ;; )
  *          {
- *              err = core2foraws_expports_i2c_read( DEVICE_ADDRESS, I2C_NO_REG, &heart_rate, 1 );
+ *              err = core2foraws_expports_i2c_read( dev_handle, I2C_NO_REGISTER_ADDR, &heart_rate, 1 );
  *              if ( !err )
  *              {
  *                  ESP_LOGI(TAG, "Heart Rate — %ubpm", heart_rate);    
@@ -456,11 +459,14 @@ esp_err_t core2foraws_expports_i2c_device_add( uint16_t device_address, uint32_t
  *      
  *      if ( err == ESP_OK)
  *      {
+ *          i2c_master_dev_handle_t dev_handle;
+ *          err = core2foraws_expports_i2c_device_add( DEVICE_ADDRESS, 400000, &dev_handle );
+ * 
  *          uint8_t heart_rate = 255;
  * 
  *          for( ;; )
  *          {
- *              err = core2foraws_expports_i2c_read( DEVICE_ADDRESS, I2C_NO_REG, &heart_rate, 1 );
+ *              err = core2foraws_expports_i2c_read( dev_handle, I2C_NO_REGISTER_ADDR, &heart_rate, 1 );
  *              if ( !err )
  *              {
  *                  ESP_LOGI(TAG, "Heart Rate — %ubpm", heart_rate);    
@@ -481,8 +487,8 @@ esp_err_t core2foraws_expports_i2c_device_add( uint16_t device_address, uint32_t
  *  }
  * @endcode
  * 
- * @param[in] device_address The 8-bit I2C peripheral address.
- * @param[in] register_address The data register address.
+ * @param[in] dev_handle The device handle from @ref core2foraws_expports_i2c_device_add.
+ * @param[in] register_address The data register address, or @ref I2C_NO_REGISTER_ADDR if the device has no register.
  * @param[out] data Pointer to the data read from the I2C peripheral.
  * @param[in] length The number of bytes to read.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
@@ -535,14 +541,17 @@ esp_err_t core2foraws_expports_i2c_read( i2c_master_dev_handle_t dev_handle, uin
  *      err = core2foraws_expports_i2c_begin();
  *      if ( err == ESP_OK )
  *      {
- *          core2foraws_expports_i2c_write( DEVICE_ADDRESS, register_address, &write_byte, sizeof( write_byte ) )
+ *          i2c_master_dev_handle_t dev_handle;
+ *          err = core2foraws_expports_i2c_device_add( DEVICE_ADDRESS, 400000, &dev_handle );
+ *          if ( err == ESP_OK )
+ *              core2foraws_expports_i2c_write( dev_handle, register_address, &write_byte, sizeof( write_byte ) );
  *      }
  *  }
  * @endcode
  * 
- * @param[in] device_address The 8-bit I2C peripheral address.
+ * @param[in] dev_handle The device handle from @ref core2foraws_expports_i2c_device_add.
  * @param[in] register_address The data register address.
- * @param[out] data Pointer to the data to write to the I2C 
+ * @param[in] data Pointer to the data to write to the I2C 
  * peripheral.
  * @param[in] length The number of bytes to write.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
@@ -597,11 +606,14 @@ esp_err_t core2foraws_expports_i2c_write( i2c_master_dev_handle_t dev_handle, ui
  *      
  *      if ( err == ESP_OK)
  *      {
+ *          i2c_master_dev_handle_t dev_handle;
+ *          err = core2foraws_expports_i2c_device_add( DEVICE_ADDRESS, 400000, &dev_handle );
+ * 
  *          uint8_t heart_rate = 255;
  * 
  *          for( ;; )
  *          {
- *              err = core2foraws_expports_i2c_read( DEVICE_ADDRESS, I2C_NO_REG, &heart_rate, 1 );
+ *              err = core2foraws_expports_i2c_read( dev_handle, I2C_NO_REGISTER_ADDR, &heart_rate, 1 );
  *              if ( !err )
  *              {
  *                  ESP_LOGI(TAG, "Heart Rate — %ubpm", heart_rate);    

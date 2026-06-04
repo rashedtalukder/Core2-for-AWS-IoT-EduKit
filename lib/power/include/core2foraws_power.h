@@ -439,7 +439,7 @@ esp_err_t core2foraws_power_axp_read( uint8_t reg, void *buffer );
  * _advanced_ users as it can lead to a bricked device.
  *
  * @param[in] reg The register address to write to.
- * @param[out] buffer Pointer to the buffer data read from the PMU.
+ * @param[in] buffer Pointer to the buffer data to write to the PMU.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
  *  - ESP_ERR_INVALID_ARG	: Driver parameter error

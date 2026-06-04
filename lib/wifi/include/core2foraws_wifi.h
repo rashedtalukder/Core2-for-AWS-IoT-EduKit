@@ -260,7 +260,7 @@ esp_err_t core2foraws_wifi_deinit( void );
  * 
  *      vTaskDelay( pdMS_TO_TICKS( 5000 ) );
  * 
- *      esp_err_t err core2foraws_wifi_disconnect();
+ *      esp_err_t err = core2foraws_wifi_disconnect();
  * 
  *      ESP_LOGI( TAG, "\tWi-Fi disconnect returned %d", err );
  *  }

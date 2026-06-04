@@ -74,9 +74,9 @@ extern "C"
    *  - ESP_ERR_INVALID_STATE : Library is unable to initialize
    *  - ESP_ERR_NO_MEM        : Out of memory
    */
-  /* @[declare_xore2foraws_display_init] */
+  /* @[declare_core2foraws_display_init] */
   esp_err_t core2foraws_display_init( void );
-  /* @[declare_xore2foraws_display_init] */
+  /* @[declare_core2foraws_display_init] */
 
 #ifdef __cplusplus
 }
