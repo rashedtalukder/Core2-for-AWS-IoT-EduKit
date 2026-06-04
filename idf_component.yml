@@ -1,4 +1,6 @@
 dependencies:
+  espressif/esp-cryptoauthlib:
+    version: "^3.7.9~1"
   espressif/qrcode:
     version: ">=0.1.0"
     rules:
