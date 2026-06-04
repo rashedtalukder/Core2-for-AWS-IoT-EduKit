@@ -229,37 +229,37 @@ esp_err_t core2foraws_power_init( void )
     else if ( ret == ESP_OK )
         ret = err;
 
-	float volts;
-	if (core2foraws_power_axp_read( AXP192_BATTERY_VOLTAGE, &volts ) == ESP_OK)
+    float volts;
+    if (core2foraws_power_axp_read( AXP192_BATTERY_VOLTAGE, &volts ) == ESP_OK)
     {
-		ESP_LOGI( _TAG, "\tBattery voltage now: %.2f volts", volts );
+        ESP_LOGI( _TAG, "\tBattery voltage now: %.2f volts", volts );
     }
 
     /* PEK (power key) config: 0x4c = 128ms startup, 4s long-press shutdown,
        1s shutdown delay, power-key auto-shutdown enabled. */
     err = core2foraws_power_axp_twiddle( AXP192_PEK, 0xff, 0x4c );
     if ( err == ESP_OK )
-    	ESP_LOGI( _TAG, "\tPower key set, 4 seconds for hard shutdown" );
+        ESP_LOGI( _TAG, "\tPower key set, 4 seconds for hard shutdown" );
     else if ( ret == ESP_OK )
         ret = err;
 
     /* Enable all ADC channels: battery, ACIN, VBUS, APS, TS voltages & currents. */
     err = core2foraws_power_axp_twiddle( AXP192_ADC_ENABLE_1, 0xff, 0xff );
     if ( err == ESP_OK )
-    	ESP_LOGI( _TAG, "\tEnabled all ADC channels" );
+        ESP_LOGI( _TAG, "\tEnabled all ADC channels" );
     else if ( ret == ESP_OK )
         ret = err;
 
     err = _core2foraws_power_int_5v_enable( true );
     if ( err == ESP_OK )
-    	ESP_LOGI( _TAG, "\tUSB / battery powered, 5V bus on" );
+        ESP_LOGI( _TAG, "\tUSB / battery powered, 5V bus on" );
     else if ( ret == ESP_OK )
         ret = err;
-	
-	/* Configure GPIO4 as NMOS open-drain for LCD/touch reset control.
-	   REG95H: bit7 = GPIO3/4 function enable, bits[3:2] = GPIO4 mode.
-	   0x84 = enable GPIO3/4 functions, GPIO4 = NMOS output. */
-	err = core2foraws_power_axp_twiddle( AXP192_GPIO43_FUNCTION_CONTROL, (uint8_t)~0x72, 0x84 );
+
+    /* Configure GPIO4 as NMOS open-drain for LCD/touch reset control.
+       REG95H: bit7 = GPIO3/4 function enable, bits[3:2] = GPIO4 mode.
+       0x84 = enable GPIO3/4 functions, GPIO4 = NMOS output. */
+    err = core2foraws_power_axp_twiddle( AXP192_GPIO43_FUNCTION_CONTROL, (uint8_t)~0x72, 0x84 );
     if ( err != ESP_OK && ret == ESP_OK )
         ret = err;
 
