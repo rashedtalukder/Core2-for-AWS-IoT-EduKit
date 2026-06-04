@@ -27,6 +27,9 @@ set( CORE2FORAWS_REQUIRES               ${ADC_COMPONENT}
                                         )
 set( CORE2FORAWS_PRIV_INCLUDEDIRS       )
 set( CORE2FORAWS_PRIV_REQUIRES          "nvs_flash"
+                                        "esp_wifi"
+                                        "esp_event"
+                                        "wifi_provisioning"
                                         )
 set( CORE2FORAWS_EXCLUDE_SRCS           )
 set( CORE2FORAWS_LIB                    "${COMPONENT_DIR}/lib" )
@@ -137,7 +140,6 @@ if( CONFIG_SOFTWARE_WIFI_SUPPORT )
 
     list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_WIFI_SRCS} )
     list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${CORE2FORAWS_WIFI_INCLUDE_DIRS} )
-    list( APPEND CORE2FORAWS_PRIV_REQUIRES  "wifi_provisioning" )
 
     if( IDF_VERSION_MAJOR GREATER_EQUAL 5 )
         # ESP-IDF v5+: qrcode is a managed component (espressif/qrcode)
