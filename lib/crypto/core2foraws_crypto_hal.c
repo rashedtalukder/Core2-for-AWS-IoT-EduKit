@@ -225,11 +225,6 @@ ATCA_STATUS __wrap_hal_i2c_release( void *hal_data )
     return ATCA_SUCCESS;
 }
 
-ATCA_STATUS __wrap_hal_i2c_wake( ATCAIface iface )
-{
-    return _atecc_wake( iface );
-}
-
 ATCA_STATUS __wrap_hal_i2c_control( ATCAIface iface, uint8_t option,
                                     void *param, size_t paramlen )
 {

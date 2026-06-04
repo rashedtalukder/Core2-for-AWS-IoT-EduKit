@@ -171,7 +171,6 @@ if( CONFIG_SOFTWARE_CRYPTO_SUPPORT )
         -Wl,--wrap=hal_i2c_receive
         -Wl,--wrap=hal_i2c_release
         -Wl,--wrap=hal_i2c_change_baud
-        -Wl,--wrap=hal_i2c_wake
         -Wl,--wrap=hal_i2c_control
     )
 endif()
