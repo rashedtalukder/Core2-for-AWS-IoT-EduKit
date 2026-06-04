@@ -29,12 +29,6 @@
 #include "core2foraws_common.h"
 #include "core2foraws_rtc.h"
 
-// timegm() is provided by ESP-IDF's newlib but its prototype is guarded behind
-// feature-test macros (e.g. _DEFAULT_SOURCE / _GNU_SOURCE) that are not
-// guaranteed to be enabled in this translation unit. Declare it explicitly to
-// avoid an implicit-declaration warning/error.
-extern time_t timegm( struct tm *tm );
-
 static const char *_TAG = "CORE2FORAWS_RTC";
 
 static i2c_master_dev_handle_t _bm8563_dev = NULL;
@@ -91,6 +85,7 @@ static esp_err_t _bm8563_write_reg_internal( uint8_t reg, const uint8_t *data,
                                              size_t len );
 static void _tm_to_bm8563( const struct tm *tm_time, uint8_t *bm_regs );
 static void _bm8563_to_tm( const uint8_t *bm_regs, struct tm *tm_time );
+static time_t _tm_utc_to_epoch( const struct tm *tm_time );
 
 static bool _rtc_initialized = false;
 
@@ -187,6 +182,37 @@ static void _bm8563_to_tm( const uint8_t *bm_regs, struct tm *tm_time )
   tm_time->tm_isdst = -1;
 }
 
+// Convert a struct tm whose fields are expressed in UTC to a Unix epoch
+// (seconds since 1970-01-01 00:00:00 UTC). This is a self-contained
+// replacement for timegm(), which is not reliably available in every libc
+// variant (e.g. newlib-nano omits it, causing an undefined reference at link
+// time). It does NOT touch the process-global timezone, so it is free of the
+// setenv("TZ")/tzset() races that the previous implementation had. Only
+// tm_year, tm_mon, tm_mday, tm_hour, tm_min and tm_sec are used; tm_wday,
+// tm_yday and tm_isdst are ignored.
+static time_t _tm_utc_to_epoch( const struct tm *tm_time )
+{
+  // Days-from-civil algorithm (valid for the proleptic Gregorian calendar).
+  int year = tm_time->tm_year + 1900;
+  int month = tm_time->tm_mon + 1; // 1-12
+  int day = tm_time->tm_mday;      // 1-31
+
+  // Shift the year so that March is the first month; this keeps the leap day
+  // at the end of the era and simplifies the day count.
+  int y = ( month <= 2 ) ? year - 1 : year;
+  int era = ( ( y >= 0 ) ? y : y - 399 ) / 400;
+  unsigned yoe = (unsigned)( y - era * 400 );             // [0, 399]
+  unsigned doy =
+      ( 153 * ( ( month > 2 ) ? ( month - 3 ) : ( month + 9 ) ) + 2 ) / 5 +
+      day - 1;                                            // [0, 365]
+  unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;   // [0, 146096]
+  long days_since_epoch = (long)era * 146097 + (long)doe - 719468;
+
+  return (time_t)( days_since_epoch * 86400L +
+                   tm_time->tm_hour * 3600L + tm_time->tm_min * 60L +
+                   tm_time->tm_sec );
+}
+
 esp_err_t core2foraws_rtc_init( void )
 {
   ESP_LOGI( _TAG, "Initializing BM8563 RTC" );
@@ -260,11 +286,11 @@ esp_err_t core2foraws_rtc_time_get( struct tm *time )
     return ret;
   }
 
-  // Convert the UTC struct tm to an epoch using timegm(), which interprets
-  // the fields as UTC without touching the process-global timezone. This
-  // avoids the setenv("TZ")/tzset() dance that would otherwise race with
-  // other tasks and corrupt the shared TZ state.
-  time_t utc_epoch = timegm( time );
+  // Convert the UTC struct tm to an epoch using a self-contained,
+  // timezone-free routine. This interprets the fields as UTC without touching
+  // the process-global timezone (no setenv("TZ")/tzset() race) and avoids
+  // depending on timegm(), which is absent from some libc variants.
+  time_t utc_epoch = _tm_utc_to_epoch( time );
 
   if( utc_epoch == (time_t)-1 )
   {
