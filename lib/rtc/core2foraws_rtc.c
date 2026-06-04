@@ -85,11 +85,8 @@ static esp_err_t _bm8563_write_reg_internal( uint8_t reg, const uint8_t *data,
                                              size_t len );
 static void _tm_to_bm8563( const struct tm *tm_time, uint8_t *bm_regs );
 static void _bm8563_to_tm( const uint8_t *bm_regs, struct tm *tm_time );
-static esp_err_t _setup_timezone( void );
-static void _restore_timezone( void );
 
 static bool _rtc_initialized = false;
-static char *_saved_tz = NULL;
 
 static uint8_t _dec_to_bcd( uint8_t dec )
 {
@@ -184,42 +181,6 @@ static void _bm8563_to_tm( const uint8_t *bm_regs, struct tm *tm_time )
   tm_time->tm_isdst = -1;
 }
 
-static esp_err_t _setup_timezone( void )
-{
-  // Save current TZ if exists
-  char *current_tz = getenv( "TZ" );
-  if( current_tz )
-  {
-    if( _saved_tz )
-    {
-      free( _saved_tz );
-    }
-    _saved_tz = strdup( current_tz );
-  }
-
-  // Set to UTC for RTC operations since RTC uses UTC time
-  setenv( "TZ", "UTC0", 1 );
-  tzset();
-
-  return ESP_OK;
-}
-
-static void _restore_timezone( void )
-{
-  if( _saved_tz )
-  {
-    setenv( "TZ", _saved_tz, 1 );
-    free( _saved_tz );
-    _saved_tz = NULL;
-  }
-  else
-  {
-    // Set to configured timezone if no previous TZ was saved
-    setenv( "TZ", CONFIG_TIME_ZONE, 1 );
-  }
-  tzset();
-}
-
 esp_err_t core2foraws_rtc_init( void )
 {
   ESP_LOGI( _TAG, "Initializing BM8563 RTC" );
@@ -293,21 +254,19 @@ esp_err_t core2foraws_rtc_time_get( struct tm *time )
     return ret;
   }
 
-  // Convert UTC struct tm to time_t (interpret as UTC by temporarily setting
-  // timezone to UTC)
-  _setup_timezone();
-  time_t utc_epoch = mktime( time );
+  // Convert the UTC struct tm to an epoch using timegm(), which interprets
+  // the fields as UTC without touching the process-global timezone. This
+  // avoids the setenv("TZ")/tzset() dance that would otherwise race with
+  // other tasks and corrupt the shared TZ state.
+  time_t utc_epoch = timegm( time );
 
   if( utc_epoch == (time_t)-1 )
   {
-    _restore_timezone();
     ESP_LOGE( _TAG, "Failed to convert UTC time to epoch" );
     return ESP_FAIL;
   }
 
-  _restore_timezone();
-
-  // Convert time_t to local time (uses restored local timezone)
+  // Convert time_t to local time (uses the configured local timezone)
   struct tm local_time;
   if( localtime_r( &utc_epoch, &local_time ) == NULL )
   {
