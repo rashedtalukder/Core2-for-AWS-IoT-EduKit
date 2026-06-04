@@ -61,7 +61,7 @@
 #define LCD_PIXEL_CLK_HZ    ( 40 * 1000 * 1000 )
 #define LCD_CMD_BITS        8
 #define LCD_PARAM_BITS      8
-#define LCD_DRAW_BUF_LINES  50
+#define LCD_DRAW_BUF_LINES  25
 
 /* FT6336U touch controller on internal I2C bus */
 #define TOUCH_INT_GPIO      GPIO_NUM_39
