@@ -259,6 +259,16 @@ static void button_press_task( void *pvParameters )
       _dispatch_button_callback( release_callbacks[ i ],
                                  _touch_buttons[ i ].id, RELEASE );
     }
+
+    /* Report this task's stack headroom once, after the first full poll,
+     * so its footprint is visible in the logs for right-sizing without
+     * instrumenting the application. */
+    static bool _watermark_logged = false;
+    if( !_watermark_logged )
+    {
+      _watermark_logged = true;
+      core2foraws_common_task_stack_watermark( _TAG, NULL );
+    }
   }
 }
 

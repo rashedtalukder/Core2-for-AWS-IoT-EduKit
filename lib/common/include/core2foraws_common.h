@@ -35,6 +35,7 @@ extern "C" {
 #include <stdint.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <esp_err.h>
 
 #include "core2foraws_i2c.h"
@@ -112,6 +113,40 @@ extern SemaphoreHandle_t core2foraws_common_spi_semaphore;
 /* @[declare_core2foraws_common_error] */
 esp_err_t core2foraws_common_error( int32_t error_code );
 /* @[declare_core2foraws_common_error] */
+
+/**
+ * @brief Report the minimum free stack ("high-water mark") of a task.
+ *
+ * Returns, and logs at info level, the smallest amount of unused stack the
+ * task has ever had since it started, expressed in bytes. Use it to size
+ * FreeRTOS task stacks: run your real workload, read the watermark, and keep
+ * a safety margin above the peak usage (allocation minus reported free).
+ *
+ * The BSP creates two long-lived tasks whose stacks you may want to measure:
+ * the virtual-button poll task (named `"buttonPress"`) and the LVGL
+ * render/flush task (named `"LVGL task"`). Look either up with
+ * [`xTaskGetHandle()`](https://www.freertos.org/a00021.html#xTaskGetHandle)
+ * or pass `NULL` to measure the calling task.
+ *
+ * **Example:**
+ *
+ * Log how much stack headroom the LVGL task still has.
+ * @code{c}
+ *  #include "core2foraws.h"
+ *
+ *  core2foraws_init();
+ *  TaskHandle_t lvgl = xTaskGetHandle( "LVGL task" );
+ *  core2foraws_common_task_stack_watermark( "APP", lvgl );
+ * @endcode
+ *
+ * @param[in] tag  Log tag to print under. If `NULL`, a default tag is used.
+ * @param[in] task Handle of the task to inspect, or `NULL` for the caller.
+ * @return Minimum free stack in bytes since the task started.
+ */
+/* @[declare_core2foraws_common_task_stack_watermark] */
+size_t core2foraws_common_task_stack_watermark( const char *tag,
+                                                TaskHandle_t task );
+/* @[declare_core2foraws_common_task_stack_watermark] */
 
 #ifdef __cplusplus
 }

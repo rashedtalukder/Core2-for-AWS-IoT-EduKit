@@ -28,6 +28,8 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "core2foraws_common.h"
 
@@ -40,4 +42,20 @@ esp_err_t core2foraws_common_error( int32_t error_code )
     ESP_LOGV( _TAG, "Original error code: %" PRId32, error_code );
 
     return ( error_code == 0 ) ? ESP_OK : ESP_FAIL;
+}
+
+size_t core2foraws_common_task_stack_watermark( const char *tag,
+                                                TaskHandle_t task )
+{
+    /* uxTaskGetStackHighWaterMark() reports the minimum free stack in words
+       (StackType_t units); scale to bytes for a human-readable figure. */
+    size_t free_bytes = ( size_t ) uxTaskGetStackHighWaterMark( task ) *
+                        sizeof( StackType_t );
+    const char *name = pcTaskGetName( task );
+
+    ESP_LOGI( tag != NULL ? tag : _TAG,
+              "Task '%s' minimum free stack: %u bytes",
+              name != NULL ? name : "self", ( unsigned int ) free_bytes );
+
+    return free_bytes;
 }

@@ -237,6 +237,11 @@ esp_err_t core2foraws_display_init( void )
     /* Raise the LVGL task stack from the default 7168 bytes to avoid a
      * stack overflow during canvas/image rendering. */
     lvgl_cfg.task_stack = 10240;
+    /* Pin the LVGL render/flush task to core 1, away from core 0 where the
+     * Wi-Fi stack and the IDF event loop run by default. This keeps the
+     * DMA-driven display flush off the same core as networking, avoiding
+     * scheduling contention that shows up as dropped frames. */
+    lvgl_cfg.task_affinity = 1;
     err = lvgl_port_init( &lvgl_cfg );
     if( err != ESP_OK )
     {
@@ -259,6 +264,10 @@ esp_err_t core2foraws_display_init( void )
             .mirror_y = false,
         },
         .flags = {
+            /* Draw buffers must live in internal, DMA-capable RAM. PSRAM is
+             * not DMA-addressable; a PSRAM draw buffer stalls the SPI flush
+             * and causes UI hangs/crashes. Keep buff_spiram = false. See
+             * .claude/rules/memory-placement.md. */
             .buff_dma    = true,
             .buff_spiram = false,
             .swap_bytes  = true,

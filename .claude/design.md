@@ -218,6 +218,26 @@ returns `ESP_ERR_INVALID_STATE`. This is a hardware constraint, not a software
 limitation, and the BSP makes the constraint explicit instead of letting you trip
 over it silently.
 
+### 5.5 Buffer placement — internal DRAM vs. PSRAM
+
+The board has 8 MB of external PSRAM but only a small internal DRAM pool. PSRAM
+is **not** DMA-addressable and is slower for the CPU; internal DRAM is scarce but
+DMA-capable and fast. The BSP keeps every DMA- or latency-critical buffer in
+internal DRAM and leaves PSRAM for large, CPU-only, latency-tolerant data.
+
+- **LVGL display draw buffers stay in internal DRAM** (`buff_dma = true`,
+  `buff_spiram = false`). Moving them to PSRAM forces non-DMA byte copies that
+  stall the LVGL flush and cause UI hangs/crashes; keeping them internal
+  *raised* the framerate even after the draw-buffer line count was reduced.
+- **Audio I2S, SD/shared-SPI, and SK6812 RMT buffers** are likewise internal —
+  their DMA engines cannot reach PSRAM.
+- **Application scratch/payload buffers** (mic copies, UART payloads, crypto
+  serial/public-key strings) are the right place to use PSRAM; the public
+  headers demonstrate `heap_caps_malloc( ..., MALLOC_CAP_SPIRAM )` for these.
+
+The full policy and decision checklist live in
+[.claude/rules/memory-placement.md](rules/memory-placement.md).
+
 ---
 
 ## 6. The power subsystem (AXP192 PMU)
@@ -256,7 +276,7 @@ in the headers for the modules you enabled.
 
 | Module | What it gives you | Wraps / driver |
 | --- | --- | --- |
-| **common** | I2C abstraction, shared SPI semaphore, `common_error()` | ESP-IDF `i2c_master` |
+| **common** | I2C abstraction, shared SPI semaphore, `common_error()`, task stack-watermark helper | ESP-IDF `i2c_master` |
 | **power** | Battery info, backlight, vibration, speaker enable, rail control | custom `axp192.c` |
 | **display** | LCD + touch via LVGL 9 | `esp_lcd`, `esp_lvgl_port` |
 | **button** | Three virtual touch buttons with press/release/long-press callbacks | FT6336 via display |
@@ -340,6 +360,23 @@ used consistently:
 Secrets (e.g. the provisioned Wi-Fi password) are never logged; only
 non-sensitive metadata such as length is emitted.
 
+### 8.4 Task footprint and core affinity
+
+The BSP creates two long-lived FreeRTOS tasks, both kept off core 0 so they do
+not contend with the Wi-Fi stack and IDF event loop that run there by default:
+
+| Task | Name | Stack (allocated) | Core | Notes |
+| --- | --- | --- | --- | --- |
+| LVGL render/flush | `LVGL task` | 10240 B | 1 | Stack raised from the 7168 B default for canvas/image rendering; pinned via `lvgl_cfg.task_affinity = 1`. |
+| Virtual-button poll | `buttonPress` | `configMINIMAL_STACK_SIZE * 6` | 1 | 20 ms touch poll; logs its own watermark once after the first poll. |
+
+Stacks are intentionally sized with headroom rather than trimmed blindly. To
+right-size them, call `core2foraws_common_task_stack_watermark()` (pass `NULL`
+for the calling task, or a handle from `xTaskGetHandle()` for another) under a
+realistic workload: it logs and returns the minimum free stack in bytes. Keep a
+safety margin above the observed peak; under-sizing the LVGL stack reproduces
+the canvas-render overflow it was raised to fix.
+
 Set the log level in menuconfig (`Component config → Log output`) to see more or
 less.
 
@@ -397,6 +434,9 @@ write low-level code, keep them in mind. The full pin map is in
 7. **The RGB strip is a single 10-pixel SK6812 chain on GPIO25**, powered from 5 V.
 8. **Reserved pins** (flash GPIO6–11, PSRAM GPIO16–17, UART0 GPIO1/3, plus the
    bus/audio/CS pins above) must never be repurposed.
+9. **DMA/latency-critical buffers stay in internal DRAM** — the LVGL draw
+   buffers, audio I2S, SD/SPI, and RGB-LED RMT buffers must not be moved to
+   PSRAM (see [.claude/rules/memory-placement.md](rules/memory-placement.md)).
 
 ---
 
