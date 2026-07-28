@@ -17,14 +17,14 @@ menu "Core2 for AWS hardware features"
         depends on SOFTWARE_BSP_SUPPORT
         default y
         help
-          Enable ATECC608A secure element support for cryptographic operations.
+          Enable ATECC608 secure element support for cryptographic operations.
 
     config SOFTWARE_DISPLAY_SUPPORT
         bool "Display"
         depends on SOFTWARE_BSP_SUPPORT
         default y
         help
-          Enable ILI9341 display and FT6336 touch controller support.
+          Enable ILI9342C display and FT6336 touch controller support.
     rsource "lib/display/Kconfig"
 
     config SOFTWARE_BUTTON_SUPPORT

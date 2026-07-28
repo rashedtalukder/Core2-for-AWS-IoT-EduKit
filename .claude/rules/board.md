@@ -68,7 +68,7 @@
   * `GPIO32 = SDA`
   * `GPIO33 = SCL`
 * BSP must keep them distinct.
-* All on-board peripherals — including add-on board devices (MPU6886, ATECC608A) — are on the internal bus (GPIO21/22). The external bus (GPIO32/33) is reserved for Port A "unit" accessories only.
+* All on-board peripherals — including add-on board devices (MPU6886, ATECC608) — are on the internal bus (GPIO21/22). The external bus (GPIO32/33) is reserved for Port A "unit" accessories only.
 
 ## 5. LCD reset and touch reset remain a shared reset domain
 
@@ -102,7 +102,7 @@ From the add-on schematic:
 Add-on board devices on this bus include:
 
 * **MPU6886**
-* **ATECC608A**
+* **ATECC608**
 * the J3 **I2C socket**
 
 BSP must:
@@ -143,11 +143,9 @@ BSP must:
 * place `MPU6886` on the **internal I2C bus** (GPIO21/GPIO22)
 * not place it on the external I2C bus (GPIO32/GPIO33)
 
-## 10. ATECC608B is also on the internal I2C bus
+## 10. ATECC608 is also on the internal I2C bus
 
-The add-on schematic shows the secure element (labeled **ATECC608A-TNGTLSU-B**
-on early-run boards; production units ship the pin- and register-compatible
-**ATECC608B-TNGTLSU-G**, address 0x35) on:
+The add-on schematic shows the **ATECC608** secure element (address 0x35) on:
 
 * `I2C_SCL`
 * `I2C_SDA`
@@ -160,7 +158,7 @@ BSP must:
 
 * place secure element on the **internal I2C bus**
 * not fabricate an external-I2C connection for it
-* treat the part as ATECC608B
+* treat the part as ATECC608
 
 ## 11. The add-on board also exposes that same internal I2C bus to a socket
 
@@ -180,7 +178,7 @@ Implication:
 
 * external connector peripherals may share the same bus as onboard add-on devices
 * BSP should model the internal I2C bus as a **multi-drop bus**
-* do not assume MPU6886 and ATECC608A are the only devices present
+* do not assume MPU6886 and ATECC608 are the only devices present
 
 ---
 
@@ -365,7 +363,7 @@ BSP must:
 
 # New secure element notes
 
-## 22. ATECC608B is powered from 3.3V and attached directly to the internal I2C bus
+## 22. ATECC608 is powered from 3.3V and attached directly to the internal I2C bus
 
 The add-on schematic shows:
 
@@ -378,7 +376,7 @@ BSP should:
 * place secure element on the internal I2C bus (GPIO21/GPIO22)
 * not generate a separate enable/reset GPIO unless another sheet proves one exists
 
-## 23. ATECC608B should be considered a shared-bus device with strict transaction behavior
+## 23. ATECC608 should be considered a shared-bus device with strict transaction behavior
 
 Because it is on the same internal I2C bus as:
 
@@ -610,7 +608,7 @@ These should not be presented as casually free GPIOs in a generated BSP.
 3. required rail enable state
 4. shared reset-domain handling
 5. internal I2C bus on GPIO21/22, including core devices (AXP192, BM8563,
-   touch) and add-on devices (MPU6886, ATECC608A)
+  touch) and add-on devices (MPU6886, ATECC608)
 6. external (Port A) I2C bus on GPIO32/33
 7. shared SPI devices:
 
@@ -619,8 +617,6 @@ These should not be presented as casually free GPIOs in a generated BSP.
 8. board audio subsystem
 9. RGB LED chain
 10. exported sockets / optional external modules
-
-This ordering helps avoid powering or probing devices before their bus/power dependencies are stable.
 
 This ordering helps avoid powering or probing devices before their bus/power dependencies are stable.
 
@@ -633,7 +629,7 @@ This ordering helps avoid powering or probing devices before their bus/power dep
 * LCD and SD share one SPI bus.
 * Core internal I2C and external (Port A) I2C are different buses.
 * MPU6886 is on the internal I2C bus, not the external bus.
-* ATECC608B is on the internal I2C bus, not the external bus.
+* ATECC608 is on the internal I2C bus, not the external bus.
 * Touch reset and LCD reset are shared.
 * Speaker enable is PMU-controlled, not directly MCU-controlled.
 * LCD backlight is not a simple direct ESP32 GPIO backlight.

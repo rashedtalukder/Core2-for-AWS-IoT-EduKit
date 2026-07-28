@@ -35,6 +35,10 @@ static const char *TAG = "MPU6886";
 
 static esp_err_t mpu6886_i2c_init( core2foraws_i2c_port_t port )
 {
+    if( _mpu6886_dev != NULL )
+    {
+        return ESP_OK;
+    }
     _i2c_port = port;
     return core2foraws_i2c_device_add( port, MPU6886_ADDRESS,
                                        100000, &_mpu6886_dev );

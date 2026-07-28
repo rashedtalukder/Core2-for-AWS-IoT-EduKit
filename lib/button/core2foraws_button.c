@@ -159,20 +159,9 @@ static void button_press_task( void *pvParameters )
 {
   (void)pvParameters;
 
-  esp_lcd_touch_handle_t tp = core2foraws_display_get_touch_handle();
-
   for( ;; )
   {
     vTaskDelay( pdMS_TO_TICKS( BUTTON_POLL_INTERVAL_MS ) );
-
-    if( tp == NULL )
-    {
-      tp = core2foraws_display_get_touch_handle();
-      continue;
-    }
-
-    /* Read raw touch data from the controller */
-    esp_lcd_touch_read_data( tp );
 
     /* The FT6336U reports up to two simultaneous touch points (datasheet
      * section 14.1). Reading both lets the user press two of the separate
@@ -181,7 +170,12 @@ static void button_press_task( void *pvParameters )
     uint8_t  touch_cnt = 0;
     esp_lcd_touch_point_data_t point_data[ BUTTON_TOUCH_POINTS ];
 
-    esp_lcd_touch_get_data( tp, point_data, &touch_cnt, BUTTON_TOUCH_POINTS );
+    esp_err_t touch_err = core2foraws_display_touch_data_get(
+        point_data, &touch_cnt, BUTTON_TOUCH_POINTS );
+    if( touch_err != ESP_OK )
+    {
+      continue;
+    }
 
     if( touch_cnt > BUTTON_TOUCH_POINTS )
     {
@@ -267,7 +261,9 @@ static void button_press_task( void *pvParameters )
     if( !_watermark_logged )
     {
       _watermark_logged = true;
-      core2foraws_common_task_stack_watermark( _TAG, NULL );
+      size_t watermark_bytes;
+      core2foraws_common_task_stack_watermark( _TAG, NULL,
+                                                &watermark_bytes );
     }
   }
 }
@@ -277,10 +273,11 @@ core2foraws_button_register_callback( enum core2foraws_button_btns button,
                                       press_event_t events,
                                       button_event_cb_t callback )
 {
-  if( button > BUTTON_RIGHT || callback == NULL )
+  if( button < BUTTON_LEFT || button > BUTTON_RIGHT || callback == NULL ||
+      events == 0 || ( events & ~( PRESS | RELEASE | LONGPRESS ) ) != 0 )
   {
     ESP_LOGE( _TAG, "Invalid button (%d) or callback is NULL", button );
-    return ESP_FAIL;
+    return ESP_ERR_INVALID_ARG;
   }
 
   if( _button_mutex == NULL )
@@ -333,10 +330,11 @@ esp_err_t
 core2foraws_button_unregister_callback( enum core2foraws_button_btns button,
                                         press_event_t events )
 {
-  if( button > BUTTON_RIGHT )
+  if( button < BUTTON_LEFT || button > BUTTON_RIGHT || events == 0 ||
+      ( events & ~( PRESS | RELEASE | LONGPRESS ) ) != 0 )
   {
     ESP_LOGE( _TAG, "Invalid button (%d)", button );
-    return ESP_FAIL;
+    return ESP_ERR_INVALID_ARG;
   }
 
   if( _button_mutex == NULL )
@@ -373,6 +371,19 @@ core2foraws_button_unregister_callback( enum core2foraws_button_btns button,
 esp_err_t core2foraws_button_init( void )
 {
   ESP_LOGI( _TAG, "\tInitializing" );
+
+  if( _button_mutex != NULL && _button_task_handle != NULL )
+  {
+    ESP_LOGD( _TAG, "Button system is already initialized" );
+    return ESP_OK;
+  }
+
+  if( _button_mutex != NULL || _button_task_handle != NULL )
+  {
+    ESP_LOGE( _TAG, "Button system is only partially initialized" );
+    return ESP_ERR_INVALID_STATE;
+  }
+
   BaseType_t err = pdFAIL;
 
   _button_mutex = xSemaphoreCreateMutex();

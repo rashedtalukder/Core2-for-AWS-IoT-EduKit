@@ -155,8 +155,9 @@ extern "C"
    * @param[in] callback The callback function to call when events occur
    * @return
    * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
-   *  - ESP_OK    : Success
-   *  - ESP_FAIL  : Failed to register callback
+  *  - ESP_OK              : Success
+  *  - ESP_ERR_INVALID_ARG : Invalid button, event mask, or callback
+  *  - ESP_FAIL            : Failed to register callback
    */
   /* @[declare_core2foraws_button_register_callback] */
   esp_err_t
@@ -173,8 +174,9 @@ extern "C"
    * LONGPRESS)
    * @return
    * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
-   *  - ESP_OK    : Success
-   *  - ESP_FAIL  : Failed to unregister callback
+  *  - ESP_OK              : Success
+  *  - ESP_ERR_INVALID_ARG : Invalid button or event mask
+  *  - ESP_FAIL            : Failed to unregister callback
    */
   /* @[declare_core2foraws_button_unregister_callback] */
   esp_err_t
@@ -186,8 +188,9 @@ extern "C"
    * @brief Initializes the virtual buttons using the ft6336u touch
    * controller.
    *
-   * @note The core2foraws_init() calls this function when the hardware
-   * feature is enabled.
+  * @note The core2foraws_init() calls this function when the hardware
+  * feature is enabled. Repeating this function after successful
+  * initialization returns ESP_OK without creating another task or mutex.
    *
    * @return
    * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).

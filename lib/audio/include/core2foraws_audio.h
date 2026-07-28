@@ -54,6 +54,11 @@ extern "C" {
 /* @[declare_core2foraws_audio_sampling_freq] */
 #endif
 
+#ifndef AUDIO_IO_TIMEOUT_MS
+/** @brief Maximum time for an audio I/O operation or lifecycle lock. */
+#define AUDIO_IO_TIMEOUT_MS 1000U
+#endif
+
 /**
  * @brief Enables or disables the device speaker driver.
  *
@@ -143,6 +148,9 @@ esp_err_t core2foraws_audio_mic_enable( bool state );
  * @param[in] sound_buffer The sound buffer to play.
  * @param[in] to_write_length Length of the buffer to play.
  *
+ * @note The call waits at most @ref AUDIO_IO_TIMEOUT_MS and serializes against
+ * speaker disable so the I2S channel cannot be deleted during the transfer.
+ *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK    : Success
  *  - ESP_FAIL  : Failed to write
@@ -209,6 +217,9 @@ esp_err_t core2foraws_audio_speaker_write( const uint8_t *sound_buffer, size_t t
  * @param[in] sound_buffer The sound buffer to record to.
  * @param[in] to_read_length Length of the buffer to read.
  * @param[out] was_read_length Length of audio read.
+ *
+ * @note The call waits at most @ref AUDIO_IO_TIMEOUT_MS and serializes against
+ * microphone disable so the I2S channel cannot be deleted during the transfer.
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK    : Success

@@ -34,11 +34,15 @@ static const char *_TAG = "CORE2FORAWS";
 
 esp_err_t core2foraws_init( void )
 {
-  esp_err_t err = ESP_FAIL;
-  esp_err_t ret = ESP_OK;
   ESP_LOGI( _TAG, "\tInitializing" );
 
-#ifdef CONFIG_SOFTWARE_BSP_SUPPORT
+#ifndef CONFIG_SOFTWARE_BSP_SUPPORT
+  ESP_LOGW( _TAG, "\tHardware features are disabled; nothing to initialize" );
+  return ESP_OK;
+#else
+  esp_err_t err = ESP_FAIL;
+  esp_err_t ret = ESP_OK;
+
   /* The internal I2C bus (GPIO21/GPIO22) is the foundation for the AXP192
    * PMU, BM8563 RTC, FT6336 touch controller, MPU6886 IMU, and ATECC608
    * secure element. It must come up before any of those peripherals. */
@@ -58,10 +62,6 @@ esp_err_t core2foraws_init( void )
   if( err != ESP_OK )
     ESP_LOGE( _TAG, "\tError initializing power. Error 0x%x", err );
   ret |= err;
-#else
-  ESP_LOGE( _TAG, "\tHardware features are disabled. Nothing to initialize. \
-            Must be enabled in the application KConfig menu" );
-#endif
 
   /* Display (ILI9342C LCD + FT6336 touch). Depends on the AXP192 having
    * raised the LCD logic/backlight rails and released the LCD/touch reset
@@ -131,4 +131,5 @@ esp_err_t core2foraws_init( void )
 #endif
 
   return core2foraws_common_error( ret );
+#endif
 }

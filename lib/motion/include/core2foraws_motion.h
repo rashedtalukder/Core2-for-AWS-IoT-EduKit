@@ -72,7 +72,8 @@ typedef enum
  * sensor driver over I2C.
  * 
  * @note The core2foraws_init() calls this function when the 
- * hardware feature is enabled.
+ * hardware feature is enabled. Repeating this function after successful
+ * initialization returns ESP_OK without adding another I2C device handle.
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success

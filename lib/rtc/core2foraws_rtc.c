@@ -129,6 +129,12 @@ static esp_err_t _bm8563_write_reg_internal( uint8_t reg, const uint8_t *data,
                                 len );
 }
 
+static esp_err_t _rtc_transaction_end( esp_err_t result )
+{
+  esp_err_t unlock_err = core2foraws_i2c_unlock( COMMON_I2C_INTERNAL );
+  return result != ESP_OK ? result : unlock_err;
+}
+
 static void _tm_to_bm8563( const struct tm *tm_time, uint8_t *bm_regs )
 {
   bm_regs[ 0 ] = _dec_to_bcd( tm_time->tm_sec );
@@ -217,9 +223,18 @@ esp_err_t core2foraws_rtc_init( void )
 {
   ESP_LOGI( _TAG, "Initializing BM8563 RTC" );
 
-  esp_err_t ret = core2foraws_i2c_device_add( COMMON_I2C_INTERNAL,
-                                              BM8563_I2C_ADDR, 100000,
-                                              &_bm8563_dev );
+  if( _rtc_initialized )
+  {
+    return ESP_OK;
+  }
+
+  esp_err_t ret = ESP_OK;
+  if( _bm8563_dev == NULL )
+  {
+    ret = core2foraws_i2c_device_add( COMMON_I2C_INTERNAL,
+                                     BM8563_I2C_ADDR, 100000,
+                                     &_bm8563_dev );
+  }
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to add BM8563 I2C device: %s",
@@ -493,14 +508,16 @@ esp_err_t core2foraws_rtc_alarm_set( struct tm alarm_time )
 {
   // Validate alarm fields that are not disabled
   if( alarm_time.tm_min != RTC_ALARM_DISABLE &&
-      alarm_time.tm_min != RTC_ALARM_NONE && alarm_time.tm_min > 59 )
+      alarm_time.tm_min != RTC_ALARM_NONE &&
+      ( alarm_time.tm_min < 0 || alarm_time.tm_min > 59 ) )
   {
     ESP_LOGE( _TAG, "Invalid alarm minute: %d (must be 0-59)",
               alarm_time.tm_min );
     return ESP_ERR_INVALID_ARG;
   }
   if( alarm_time.tm_hour != RTC_ALARM_DISABLE &&
-      alarm_time.tm_hour != RTC_ALARM_NONE && alarm_time.tm_hour > 23 )
+      alarm_time.tm_hour != RTC_ALARM_NONE &&
+      ( alarm_time.tm_hour < 0 || alarm_time.tm_hour > 23 ) )
   {
     ESP_LOGE( _TAG, "Invalid alarm hour: %d (must be 0-23)",
               alarm_time.tm_hour );
@@ -515,7 +532,8 @@ esp_err_t core2foraws_rtc_alarm_set( struct tm alarm_time )
     return ESP_ERR_INVALID_ARG;
   }
   if( alarm_time.tm_wday != RTC_ALARM_DISABLE &&
-      alarm_time.tm_wday != RTC_ALARM_NONE && alarm_time.tm_wday > 6 )
+      alarm_time.tm_wday != RTC_ALARM_NONE &&
+      ( alarm_time.tm_wday < 0 || alarm_time.tm_wday > 6 ) )
   {
     ESP_LOGE( _TAG, "Invalid alarm weekday: %d (must be 0-6)",
               alarm_time.tm_wday );
@@ -565,11 +583,14 @@ esp_err_t core2foraws_rtc_alarm_set( struct tm alarm_time )
     alarm_regs[ 3 ] = alarm_time.tm_wday & 0x07;
   }
 
-  esp_err_t ret = _bm8563_write_reg( BM8563_REG_ALARM_MIN, alarm_regs, 4 );
+  esp_err_t ret = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+  if( ret != ESP_OK ) return ret;
+
+  ret = _bm8563_write_reg( BM8563_REG_ALARM_MIN, alarm_regs, 4 );
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to set alarm: %s", esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   // The BM8563 INT pin is NOT wired to the ESP32 on this board (board schema:
@@ -583,7 +604,7 @@ esp_err_t core2foraws_rtc_alarm_set( struct tm alarm_time )
   ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
   {
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   ctrl2 &= ~( BM8563_CTRL2_AF | BM8563_CTRL2_AIE );
@@ -592,11 +613,11 @@ esp_err_t core2foraws_rtc_alarm_set( struct tm alarm_time )
   {
     ESP_LOGE( _TAG, "Failed to update alarm control register: %s",
               esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   ESP_LOGI( _TAG, "Alarm set successfully" );
-  return ESP_OK;
+  return _rtc_transaction_end( ESP_OK );
 }
 
 esp_err_t core2foraws_rtc_alarm_status( bool *triggered, bool clear_flag )
@@ -607,13 +628,16 @@ esp_err_t core2foraws_rtc_alarm_status( bool *triggered, bool clear_flag )
     return ESP_ERR_INVALID_ARG;
   }
 
+  esp_err_t ret = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+  if( ret != ESP_OK ) return ret;
+
   uint8_t ctrl2;
-  esp_err_t ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
+  ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to read control register 2: %s",
               esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   *triggered = ( ctrl2 & BM8563_CTRL2_AF ) ? true : false;
@@ -627,11 +651,11 @@ esp_err_t core2foraws_rtc_alarm_status( bool *triggered, bool clear_flag )
     {
       ESP_LOGE( _TAG, "Failed to clear alarm flag: %s",
                 esp_err_to_name( ret ) );
-      return ret;
+      return _rtc_transaction_end( ret );
     }
   }
 
-  return ESP_OK;
+  return _rtc_transaction_end( ESP_OK );
 }
 
 esp_err_t core2foraws_rtc_timer_status( bool *triggered, bool clear_flag )
@@ -642,13 +666,16 @@ esp_err_t core2foraws_rtc_timer_status( bool *triggered, bool clear_flag )
     return ESP_ERR_INVALID_ARG;
   }
 
+  esp_err_t ret = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+  if( ret != ESP_OK ) return ret;
+
   uint8_t ctrl2;
-  esp_err_t ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
+  ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to read control register 2: %s",
               esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   *triggered = ( ctrl2 & BM8563_CTRL2_TF ) ? true : false;
@@ -662,11 +689,11 @@ esp_err_t core2foraws_rtc_timer_status( bool *triggered, bool clear_flag )
     {
       ESP_LOGE( _TAG, "Failed to clear timer flag: %s",
                 esp_err_to_name( ret ) );
-      return ret;
+      return _rtc_transaction_end( ret );
     }
   }
 
-  return ESP_OK;
+  return _rtc_transaction_end( ESP_OK );
 }
 
 esp_err_t core2foraws_rtc_get_status( uint8_t *flags, uint8_t clear_mask )
@@ -677,18 +704,20 @@ esp_err_t core2foraws_rtc_get_status( uint8_t *flags, uint8_t clear_mask )
     return ESP_ERR_INVALID_ARG;
   }
 
+  esp_err_t ret = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+  if( ret != ESP_OK ) return ret;
+
   *flags = 0;
 
   // Read control_status_2 (0x01) and VL_seconds (0x02) in a single I2C
   // transaction since the BM8563 auto-increments the register pointer.
   uint8_t status_regs[ 2 ];
-  esp_err_t ret =
-      _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, status_regs, 2 );
+  ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, status_regs, 2 );
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to read status registers: %s",
               esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   uint8_t ctrl2 = status_regs[ 0 ];
@@ -737,7 +766,7 @@ esp_err_t core2foraws_rtc_get_status( uint8_t *flags, uint8_t clear_mask )
         ESP_LOGE( _TAG,
                   "Failed to clear status flags in control register 2: %s",
                   esp_err_to_name( ret ) );
-        return ret;
+        return _rtc_transaction_end( ret );
       }
     }
 
@@ -748,12 +777,12 @@ esp_err_t core2foraws_rtc_get_status( uint8_t *flags, uint8_t clear_mask )
       {
         ESP_LOGE( _TAG, "Failed to clear power loss flag: %s",
                   esp_err_to_name( ret ) );
-        return ret;
+        return _rtc_transaction_end( ret );
       }
     }
   }
 
-  return ESP_OK;
+  return _rtc_transaction_end( ESP_OK );
 }
 
 esp_err_t core2foraws_rtc_timer_get( uint32_t *seconds )
@@ -835,13 +864,16 @@ esp_err_t core2foraws_rtc_timer_set( uint32_t seconds )
   // 3. Clear stale TF flag (leave TIE disabled; INT pin drives nothing)
   // 4. Enable timer (TE=1)
 
+  esp_err_t ret = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+  if( ret != ESP_OK ) return ret;
+
   // Step 1: Disable timer and set frequency source
   timer_ctrl = freq; // TE bit is 0
-  esp_err_t ret = _bm8563_write_reg( BM8563_REG_TIMER_CTRL, &timer_ctrl, 1 );
+  ret = _bm8563_write_reg( BM8563_REG_TIMER_CTRL, &timer_ctrl, 1 );
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to disable timer: %s", esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   // Step 2: Set timer countdown value
@@ -849,7 +881,7 @@ esp_err_t core2foraws_rtc_timer_set( uint32_t seconds )
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to set timer count: %s", esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   // Step 3: Clear any stale timer flag. The timer flag (TF) is set by
@@ -862,7 +894,7 @@ esp_err_t core2foraws_rtc_timer_set( uint32_t seconds )
   ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
   {
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   ctrl2 &= ~( BM8563_CTRL2_TF | BM8563_CTRL2_TIE );
@@ -871,7 +903,7 @@ esp_err_t core2foraws_rtc_timer_set( uint32_t seconds )
   {
     ESP_LOGE( _TAG, "Failed to update timer control register: %s",
               esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   // Step 4: Enable timer
@@ -880,24 +912,26 @@ esp_err_t core2foraws_rtc_timer_set( uint32_t seconds )
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to enable timer: %s", esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   ESP_LOGI( _TAG, "Timer set for %lu seconds", (unsigned long)seconds );
-  return ESP_OK;
+  return _rtc_transaction_end( ESP_OK );
 }
 
 esp_err_t core2foraws_rtc_timer_stop( void )
 {
+  esp_err_t ret = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+  if( ret != ESP_OK ) return ret;
+
   // Disable the timer (TE=0) and set TD=11 (1/60 Hz) to reduce power
   // consumption per the BM8563 datasheet recommendation.
   uint8_t timer_ctrl = BM8563_TIMER_FREQ_1_60HZ;
-  esp_err_t ret =
-      _bm8563_write_reg( BM8563_REG_TIMER_CTRL, &timer_ctrl, 1 );
+  ret = _bm8563_write_reg( BM8563_REG_TIMER_CTRL, &timer_ctrl, 1 );
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to stop timer: %s", esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   // Disable timer interrupt and clear timer flag
@@ -905,7 +939,7 @@ esp_err_t core2foraws_rtc_timer_stop( void )
   ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
   {
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   ctrl2 &= ~( BM8563_CTRL2_TIE | BM8563_CTRL2_TF );
@@ -914,23 +948,26 @@ esp_err_t core2foraws_rtc_timer_stop( void )
   {
     ESP_LOGE( _TAG, "Failed to clear timer interrupt: %s",
               esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   ESP_LOGI( _TAG, "Timer stopped" );
-  return ESP_OK;
+  return _rtc_transaction_end( ESP_OK );
 }
 
 esp_err_t core2foraws_rtc_alarm_disable( void )
 {
+  esp_err_t ret = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+  if( ret != ESP_OK ) return ret;
+
   // Set all alarm registers to disabled (AE bit = 1)
   uint8_t alarm_regs[ 4 ] = { BM8563_ALARM_NONE, BM8563_ALARM_NONE,
                               BM8563_ALARM_NONE, BM8563_ALARM_NONE };
-  esp_err_t ret = _bm8563_write_reg( BM8563_REG_ALARM_MIN, alarm_regs, 4 );
+  ret = _bm8563_write_reg( BM8563_REG_ALARM_MIN, alarm_regs, 4 );
   if( ret != ESP_OK )
   {
     ESP_LOGE( _TAG, "Failed to disable alarm: %s", esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   // Disable alarm interrupt and clear alarm flag
@@ -938,7 +975,7 @@ esp_err_t core2foraws_rtc_alarm_disable( void )
   ret = _bm8563_read_reg( BM8563_REG_CTRL_STATUS2, &ctrl2, 1 );
   if( ret != ESP_OK )
   {
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   ctrl2 &= ~( BM8563_CTRL2_AIE | BM8563_CTRL2_AF );
@@ -947,9 +984,9 @@ esp_err_t core2foraws_rtc_alarm_disable( void )
   {
     ESP_LOGE( _TAG, "Failed to clear alarm interrupt: %s",
               esp_err_to_name( ret ) );
-    return ret;
+    return _rtc_transaction_end( ret );
   }
 
   ESP_LOGI( _TAG, "Alarm disabled" );
-  return ESP_OK;
+  return _rtc_transaction_end( ESP_OK );
 }

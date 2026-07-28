@@ -28,6 +28,7 @@
  */
 
 #include <string.h>
+#include <stdatomic.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <driver/rmt_tx.h>
@@ -66,6 +67,43 @@ static bool     _initialised = false;
 
 static rmt_channel_handle_t _rmt_channel = NULL;
 static rmt_encoder_handle_t _rmt_encoder = NULL;
+static StaticSemaphore_t _rgb_mutex_storage;
+static SemaphoreHandle_t _rgb_mutex = NULL;
+static atomic_uchar _rgb_mutex_state;
+
+static esp_err_t _rgb_lock( void )
+{
+    if( atomic_load( &_rgb_mutex_state ) != 2 )
+    {
+        unsigned char expected = 0;
+        if( atomic_compare_exchange_strong( &_rgb_mutex_state, &expected, 1 ) )
+        {
+            _rgb_mutex = xSemaphoreCreateMutexStatic( &_rgb_mutex_storage );
+            atomic_store( &_rgb_mutex_state, _rgb_mutex != NULL ? 2 : 0 );
+        }
+        else
+        {
+            while( atomic_load( &_rgb_mutex_state ) == 1 )
+            {
+                taskYIELD();
+            }
+        }
+    }
+
+    if( _rgb_mutex == NULL )
+    {
+        return ESP_ERR_NO_MEM;
+    }
+    return xSemaphoreTake( _rgb_mutex,
+                           pdMS_TO_TICKS( SK6812_FLUSH_TIMEOUT_MS ) ) == pdTRUE
+               ? ESP_OK
+               : ESP_ERR_TIMEOUT;
+}
+
+static void _rgb_unlock( void )
+{
+    xSemaphoreGive( _rgb_mutex );
+}
 
 /* ── Brightness helper (video-safe scale, never dims to 0) ─────── */
 static inline uint8_t _scale8_video( uint8_t val, uint8_t scale )
@@ -80,8 +118,15 @@ esp_err_t core2foraws_rgb_led_init( void )
 {
     ESP_LOGI( _TAG, "\tInitializing" );
 
+    esp_err_t err = _rgb_lock();
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
     if ( _initialised )
     {
+        _rgb_unlock();
         return ESP_OK;
     }
 
@@ -97,11 +142,11 @@ esp_err_t core2foraws_rgb_led_init( void )
         .trans_queue_depth = 4,
     };
 
-    esp_err_t err;
     err = rmt_new_tx_channel( &tx_chan_config, &_rmt_channel );
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to create RMT TX channel on GPIO%d: 0x%x", SK6812_GPIO, err );
+        _rgb_unlock();
         return err;
     }
 
@@ -128,6 +173,7 @@ esp_err_t core2foraws_rgb_led_init( void )
         ESP_LOGE( _TAG, "Failed to create RMT bytes encoder: 0x%x", err );
         rmt_del_channel( _rmt_channel );
         _rmt_channel = NULL;
+        _rgb_unlock();
         return err;
     }
 
@@ -139,10 +185,12 @@ esp_err_t core2foraws_rgb_led_init( void )
         rmt_del_channel( _rmt_channel );
         _rmt_encoder = NULL;
         _rmt_channel = NULL;
+        _rgb_unlock();
         return err;
     }
 
     _initialised = true;
+    _rgb_unlock();
     return ESP_OK;
 }
 
@@ -155,12 +203,16 @@ esp_err_t core2foraws_rgb_led_single_color_set( uint8_t led_num, uint32_t color 
         return ESP_ERR_INVALID_ARG;
     }
 
+    esp_err_t err = _rgb_lock();
+    if( err != ESP_OK ) return err;
+
     size_t idx = led_num * SK6812_BYTES_PER_LED;
     /* SK6812 expects GRB order */
     _led_buf[idx]     = ( color >> 8 )  & 0xFF;   /* G */
     _led_buf[idx + 1] = ( color >> 16 ) & 0xFF;   /* R */
     _led_buf[idx + 2] =   color         & 0xFF;   /* B */
 
+    _rgb_unlock();
     return ESP_OK;
 }
 
@@ -185,6 +237,9 @@ esp_err_t core2foraws_rgb_led_side_color_set( rgb_led_side_type_t side,
         return ESP_ERR_INVALID_ARG;
     }
 
+    esp_err_t err = _rgb_lock();
+    if( err != ESP_OK ) return err;
+
     for ( size_t i = start; i < start + count; i++ )
     {
         size_t idx = i * SK6812_BYTES_PER_LED;
@@ -193,31 +248,45 @@ esp_err_t core2foraws_rgb_led_side_color_set( rgb_led_side_type_t side,
         _led_buf[idx + 2] =   color         & 0xFF;
     }
 
+    _rgb_unlock();
     return ESP_OK;
 }
 
 esp_err_t core2foraws_rgb_led_brightness_set( uint8_t brightness )
 {
-    /* Clamp to 100 and scale percentage (0-100) to driver range (0-255) */
     if ( brightness > 100 )
     {
-        brightness = 100;
+        return ESP_ERR_INVALID_ARG;
     }
+
+    esp_err_t err = _rgb_lock();
+    if( err != ESP_OK ) return err;
     _brightness = (uint8_t)( ( (uint16_t)brightness * 255 ) / 100 );
 
+    _rgb_unlock();
     return ESP_OK;
 }
 
 esp_err_t core2foraws_rgb_led_write( void )
 {
-    esp_err_t err;
+    esp_err_t err = _rgb_lock();
+    if( err != ESP_OK ) return err;
 
     /* The RMT channel and encoder are only valid after initialization.
        Guard against use before init to avoid passing a NULL handle to the
        RMT driver. */
     if ( !_initialised )
     {
+        _rgb_unlock();
         return ESP_ERR_INVALID_STATE;
+    }
+
+    /* The previous asynchronous transfer owns _tx_buf until completion. */
+    err = rmt_tx_wait_all_done( _rmt_channel, SK6812_FLUSH_TIMEOUT_MS );
+    if( err != ESP_OK )
+    {
+        _rgb_unlock();
+        return err;
     }
 
     /* Apply brightness scaling to a separate TX buffer */
@@ -233,35 +302,43 @@ esp_err_t core2foraws_rgb_led_write( void )
         memcpy( _tx_buf, _led_buf, SK6812_BUF_SIZE );
     }
 
-    /* Wait for any previous TX to complete */
-    err = rmt_tx_wait_all_done( _rmt_channel,
-                                pdMS_TO_TICKS( SK6812_FLUSH_TIMEOUT_MS ) );
-    if ( err != ESP_OK && err != ESP_ERR_TIMEOUT )
-    {
-        return err;
-    }
-
     esp_rom_delay_us( SK6812_RESET_US );
 
     rmt_transmit_config_t tx_config = {
         .loop_count = 0,
     };
 
-    return rmt_transmit( _rmt_channel, _rmt_encoder, _tx_buf,
-                         SK6812_BUF_SIZE, &tx_config );
+    err = rmt_transmit( _rmt_channel, _rmt_encoder, _tx_buf,
+                        SK6812_BUF_SIZE, &tx_config );
+    _rgb_unlock();
+    return err;
 }
 
 esp_err_t core2foraws_rgb_led_clear( void )
 {
+    esp_err_t err = _rgb_lock();
+    if( err != ESP_OK ) return err;
     memset( _led_buf, 0, SK6812_BUF_SIZE );
+    _rgb_unlock();
     return ESP_OK;
 }
 
 esp_err_t core2foraws_rgb_led_deinit( void )
 {
+    esp_err_t err = _rgb_lock();
+    if( err != ESP_OK ) return err;
+
     if ( !_initialised )
     {
+        _rgb_unlock();
         return ESP_OK;
+    }
+
+    err = rmt_tx_wait_all_done( _rmt_channel, SK6812_FLUSH_TIMEOUT_MS );
+    if( err != ESP_OK )
+    {
+        _rgb_unlock();
+        return err;
     }
 
     _initialised = false;
@@ -269,9 +346,10 @@ esp_err_t core2foraws_rgb_led_deinit( void )
 
     rmt_disable( _rmt_channel );
     rmt_del_encoder( _rmt_encoder );
-    esp_err_t err = rmt_del_channel( _rmt_channel );
+    err = rmt_del_channel( _rmt_channel );
     _rmt_encoder = NULL;
     _rmt_channel = NULL;
 
+    _rgb_unlock();
     return err;
 }

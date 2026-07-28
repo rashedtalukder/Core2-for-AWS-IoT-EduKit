@@ -85,7 +85,8 @@ extern "C"
   /**
    * @brief Initializes enabled hardware features.
    *
-   * If no features are enabled, it does nothing.
+  * If CONFIG_SOFTWARE_BSP_SUPPORT is disabled, common and hardware modules
+  * are not compiled and this function returns ESP_OK without doing any work.
    * If the buttons on the touch screen are enabled, it initializes the
    * virtual button driver.
    * If the crypto chip is enabled, it initializes the the secure element.
@@ -96,8 +97,16 @@ extern "C"
    * If the real-time-clock is enabled, it initializes the RTC driver.
    * If the side RGB LED bars are enabled, it initializes the RGB LED
    * driver.
-   * The speaker, microphone (audio) and SD card drivers need to be
-   * initialized separately as needed.
+  * If Wi-Fi is enabled, it initializes the network stack; call
+  * core2foraws_wifi_start() separately to start Wi-Fi or provisioning.
+  * The speaker, microphone (audio), SD card, and expansion-port sessions
+  * need to be initialized separately as needed.
+  *
+  * The internal I2C foundation returns immediately on failure. Later module
+  * failures are logged and aggregated so every remaining module is attempted;
+  * the final return is ESP_FAIL if any of them failed. Applications that need
+  * the original module error can call that module's init function directly.
+  * Repeating this function after a successful call is safe.
    *
    * @return
    * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/system/esp_err.html#macros).

@@ -236,7 +236,8 @@ esp_err_t core2foraws_rgb_led_side_color_set( rgb_led_side_type_t side, uint32_t
  * Accepts percentage value from 0 to 100, with 100 being full 
  * bright.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK    : Success
+ *  - ESP_OK              : Success
+ *  - ESP_ERR_INVALID_ARG : Brightness is greater than 100
  */
 /* @[declare_core2foraws_rgb_led_brightness_set] */
 esp_err_t core2foraws_rgb_led_brightness_set( uint8_t brightness );

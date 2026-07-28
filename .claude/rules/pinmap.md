@@ -581,7 +581,7 @@ AD0 pulled LOW
 Device:
 
 ```
-ATECC608B
+ATECC608
 ```
 
 I2C address:
@@ -605,10 +605,6 @@ Pins:
 
 Located on the add-on board; shares the internal I2C bus with the IMU,
 AXP192, BM8563, and touch panel via M5Bus pins 17/18.
-
-Note: Production units ship the ATECC608B (Trust&GO, part
-ATECC608B-TNGTLSU-G). A small initial run used the pin- and
-register-compatible ATECC608A; treat the part as ATECC608B.
 
 ---
 

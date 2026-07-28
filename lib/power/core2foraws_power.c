@@ -128,10 +128,16 @@ static const axp192_rail_cfg_t _axp192_rail_configs[ POWER_RAIL_COUNT ] =
 };
 
 static esp_err_t _core2foraws_power_int_5v_enable( bool state );
+static bool _power_initialized = false;
 
 esp_err_t core2foraws_power_init( void ) 
 {
     ESP_LOGI( _TAG, "\tInitializing" );
+
+    if( _power_initialized )
+    {
+        return ESP_OK;
+    }
 
     /* Register AXP192 device on the internal I2C bus */
     if( _axp192_dev == NULL )
@@ -277,6 +283,11 @@ esp_err_t core2foraws_power_init( void )
         ret = err;
     vTaskDelay( pdMS_TO_TICKS( 300 ) );
     
+    if( ret == ESP_OK )
+    {
+        _power_initialized = true;
+    }
+
     return ret;
 }
 
@@ -477,7 +488,11 @@ esp_err_t core2foraws_power_axp_write( uint8_t reg, const uint8_t *buffer )
 
 esp_err_t core2foraws_power_axp_twiddle( uint8_t reg, uint8_t affect, uint8_t value )
 {
-	esp_err_t ret;
+    esp_err_t ret = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+    if( ret != ESP_OK )
+    {
+        return ret;
+    }
 	uint8_t buffer;
 	ret = core2foraws_power_axp_reg_get( reg, &buffer );
 	if ( ret == ESP_OK )
@@ -486,7 +501,8 @@ esp_err_t core2foraws_power_axp_twiddle( uint8_t reg, uint8_t affect, uint8_t va
 		buffer |= (value & affect);
 		ret = core2foraws_power_axp_reg_set( reg, buffer );
 	}
-	return ret;
+    esp_err_t unlock_err = core2foraws_i2c_unlock( COMMON_I2C_INTERNAL );
+    return ret != ESP_OK ? ret : unlock_err;
 }
 
 esp_err_t core2foraws_power_rail_state_get( power_rail_t rail, bool *enabled )
@@ -534,15 +550,7 @@ esp_err_t core2foraws_power_rail_state_get( power_rail_t rail, bool *enabled )
 
 esp_err_t core2foraws_power_rail_state_set( power_rail_t rail, bool enabled )
 {
-    esp_err_t ret;
-    uint8_t val;
     uint8_t mask;
-
-    ret = core2foraws_power_axp_reg_get( AXP192_DCDC13_LDO23_CONTROL, &val );
-    if ( ret != ESP_OK )
-    {
-        return ret;
-    }
 
     switch ( rail )
     {
@@ -568,22 +576,8 @@ esp_err_t core2foraws_power_rail_state_set( power_rail_t rail, bool enabled )
             return ESP_ERR_INVALID_ARG;
     }
 
-    if ( enabled )
-    {
-        val |= mask;
-    }
-    else
-    {
-        val = val & ~mask;
-    }
-
-    ret = core2foraws_power_axp_reg_set( AXP192_DCDC13_LDO23_CONTROL, val );
-    if ( ret != ESP_OK )
-    {
-        return ret;
-    }
-
-    return ESP_OK;
+    return core2foraws_power_axp_twiddle( AXP192_DCDC13_LDO23_CONTROL,
+                                          mask, enabled ? mask : 0 );
 }
 
 esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts )
@@ -619,9 +613,7 @@ esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts
 
 esp_err_t core2foraws_power_rail_mv_set( power_rail_t rail, uint16_t millivolts )
 {
-
-    esp_err_t ret;
-    uint8_t val, steps;
+    uint8_t steps;
 
     if ( ( rail < POWER_RAIL_DCDC1 ) || ( rail >= POWER_RAIL_COUNT ) )
     {
@@ -644,20 +636,8 @@ esp_err_t core2foraws_power_rail_mv_set( power_rail_t rail, uint16_t millivolts 
         return ESP_ERR_INVALID_ARG;
     }
 
-    ret = core2foraws_power_axp_reg_get( cfg->voltage_reg, &val );
-    if (ret != ESP_OK)
-    {
-        return ret;
-    }
-
     steps = ( millivolts - cfg->min_millivolts ) / cfg->step_millivolts;
-    val = ( val & ~( cfg->voltage_mask ) ) | ( steps << cfg->voltage_lsb );
-
-    ret = core2foraws_power_axp_reg_set( cfg->voltage_reg, val );
-    if ( ret != ESP_OK )
-    {
-        return ret;
-    }
-
-    return ESP_OK;
+    return core2foraws_power_axp_twiddle(
+        cfg->voltage_reg, cfg->voltage_mask,
+        ( uint8_t )( steps << cfg->voltage_lsb ) );
 }

@@ -49,14 +49,42 @@ extern "C"
   /* @[declare_core2foraws_display_ptr] */
 
   /**
-   * @brief Handle to the esp_lcd_touch driver for the FT6336U.
+     * @brief Gets the esp_lcd_touch driver handle for the FT6336U.
    *
    * Can be used by other subsystems (e.g. virtual buttons) to read raw
    * touch coordinates from the capacitive touch panel.
+  *
+  * @deprecated Use core2foraws_display_touch_data_get() so access is
+  * serialized with all other internal-I2C peripherals.
+     *
+     * @param[out] touch_handle Receives the touch driver handle.
+     * @return
+     *  - ESP_OK                : Success
+     *  - ESP_ERR_INVALID_ARG   : @p touch_handle is `NULL`
+     *  - ESP_ERR_INVALID_STATE : The touch driver is not initialized
    */
   /* @[declare_core2foraws_display_touch_handle] */
-  esp_lcd_touch_handle_t core2foraws_display_get_touch_handle( void );
+    esp_err_t core2foraws_display_get_touch_handle(
+      esp_lcd_touch_handle_t *touch_handle );
   /* @[declare_core2foraws_display_touch_handle] */
+
+  /**
+   * @brief Reads one or more FT6336 touch points under the shared internal-I2C
+   * lock.
+   *
+   * Use this function instead of calling `esp_lcd_touch_read_data()` directly
+   * so touch, PMU, RTC, IMU, and secure-element transactions remain serialized.
+   *
+   * @param[out] points Touch-point output array.
+   * @param[out] point_count Number of reported points.
+   * @param[in] max_points Capacity of @p points.
+   * @return ESP_OK on success or an argument, state, lock, or I2C error.
+   */
+  /* @[declare_core2foraws_display_touch_data_get] */
+  esp_err_t core2foraws_display_touch_data_get(
+      esp_lcd_touch_point_data_t *points, uint8_t *point_count,
+      uint8_t max_points );
+  /* @[declare_core2foraws_display_touch_data_get] */
 
   /**
    * @brief Initializes the display controller and touch driver.
@@ -77,6 +105,18 @@ extern "C"
   /* @[declare_core2foraws_display_init] */
   esp_err_t core2foraws_display_init( void );
   /* @[declare_core2foraws_display_init] */
+
+  /**
+   * @brief Stops LVGL and releases the display, touch, and panel-I/O resources.
+   *
+   * The shared SPI bus remains initialized because the SD card may still use
+   * it. This function is idempotent.
+   *
+   * @return ESP_OK.
+   */
+  /* @[declare_core2foraws_display_deinit] */
+  esp_err_t core2foraws_display_deinit( void );
+  /* @[declare_core2foraws_display_deinit] */
 
 #ifdef __cplusplus
 }

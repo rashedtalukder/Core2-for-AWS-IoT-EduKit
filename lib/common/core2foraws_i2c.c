@@ -6,6 +6,8 @@
  */
 
 #include <string.h>
+#include <stdlib.h>
+#include <stdatomic.h>
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
@@ -38,13 +40,98 @@ static const char *_TAG = "CORE2FORAWS_I2C";
  * multi-byte payload. */
 #define I2C_WRITE_STACK_BUF_SIZE 32
 
-/* Per-bus state */
-static i2c_master_bus_handle_t _bus_handle[ CORE2FORAWS_I2C_PORT_MAX ] = { NULL, NULL };
-static SemaphoreHandle_t _bus_mutex[ CORE2FORAWS_I2C_PORT_MAX ] = { NULL, NULL };
+typedef struct core2foraws_i2c_device_node
+{
+    i2c_master_dev_handle_t handle;
+    uint16_t address;
+    uint32_t speed_hz;
+    size_t references;
+    struct core2foraws_i2c_device_node *next;
+} core2foraws_i2c_device_node_t;
+
+typedef struct
+{
+    i2c_master_bus_handle_t handle;
+    StaticSemaphore_t mutex_storage;
+    SemaphoreHandle_t mutex;
+    atomic_uchar mutex_state;
+    core2foraws_i2c_device_node_t *devices;
+} core2foraws_i2c_bus_state_t;
+
+enum
+{
+    I2C_MUTEX_UNINITIALIZED = 0,
+    I2C_MUTEX_INITIALIZING,
+    I2C_MUTEX_READY,
+};
+
+/* The internal bus lives for the BSP lifetime. The external bus can be
+ * opened, populated with multiple application devices, closed, and reopened. */
+static core2foraws_i2c_bus_state_t _bus_state[ CORE2FORAWS_I2C_PORT_MAX ];
 
 static const gpio_num_t _sda_pin[ CORE2FORAWS_I2C_PORT_MAX ] = { INTERNAL_I2C_SDA, EXTERNAL_I2C_SDA };
 static const gpio_num_t _scl_pin[ CORE2FORAWS_I2C_PORT_MAX ] = { INTERNAL_I2C_SCL, EXTERNAL_I2C_SCL };
 static const i2c_port_num_t _i2c_port[ CORE2FORAWS_I2C_PORT_MAX ] = { I2C_NUM_0, I2C_NUM_1 };
+
+static esp_err_t _i2c_mutex_ensure( core2foraws_i2c_port_t port )
+{
+    core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
+    unsigned char current = atomic_load( &state->mutex_state );
+
+    if( current == I2C_MUTEX_READY )
+    {
+        return ESP_OK;
+    }
+
+    unsigned char expected = I2C_MUTEX_UNINITIALIZED;
+    if( atomic_compare_exchange_strong( &state->mutex_state, &expected,
+                                        I2C_MUTEX_INITIALIZING ) )
+    {
+        state->mutex =
+            xSemaphoreCreateRecursiveMutexStatic( &state->mutex_storage );
+        if( state->mutex == NULL )
+        {
+            atomic_store( &state->mutex_state, I2C_MUTEX_UNINITIALIZED );
+            return ESP_ERR_NO_MEM;
+        }
+
+        atomic_store( &state->mutex_state, I2C_MUTEX_READY );
+        return ESP_OK;
+    }
+
+    while( atomic_load( &state->mutex_state ) == I2C_MUTEX_INITIALIZING )
+    {
+        taskYIELD();
+    }
+
+    return atomic_load( &state->mutex_state ) == I2C_MUTEX_READY
+               ? ESP_OK
+               : ESP_ERR_NO_MEM;
+}
+
+static core2foraws_i2c_device_node_t *_i2c_device_find_by_handle(
+    core2foraws_i2c_bus_state_t *state, i2c_master_dev_handle_t handle,
+    core2foraws_i2c_device_node_t **previous )
+{
+    core2foraws_i2c_device_node_t *prev = NULL;
+    core2foraws_i2c_device_node_t *node = state->devices;
+
+    while( node != NULL )
+    {
+        if( node->handle == handle )
+        {
+            if( previous != NULL )
+            {
+                *previous = prev;
+            }
+            return node;
+        }
+        prev = node;
+        node = node->next;
+    }
+
+    return NULL;
+}
 
 esp_err_t core2foraws_i2c_init( core2foraws_i2c_port_t port )
 {
@@ -53,21 +140,23 @@ esp_err_t core2foraws_i2c_init( core2foraws_i2c_port_t port )
         return ESP_ERR_INVALID_ARG;
     }
 
-    /* Already initialized */
-    if( _bus_handle[ port ] != NULL )
+    esp_err_t err = _i2c_mutex_ensure( port );
+    if( err != ESP_OK )
     {
-        return ESP_OK;
+        return err;
     }
 
-    /* Create mutex */
-    if( _bus_mutex[ port ] == NULL )
+    err = core2foraws_i2c_lock( port );
+    if( err != ESP_OK )
     {
-        _bus_mutex[ port ] = xSemaphoreCreateMutex();
-        if( _bus_mutex[ port ] == NULL )
-        {
-            ESP_LOGE( _TAG, "Failed to create mutex for port %d", port );
-            return ESP_ERR_NO_MEM;
-        }
+        return err;
+    }
+
+    core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
+    if( state->handle != NULL )
+    {
+        core2foraws_i2c_unlock( port );
+        return ESP_OK;
     }
 
     i2c_master_bus_config_t bus_cfg = {
@@ -79,12 +168,12 @@ esp_err_t core2foraws_i2c_init( core2foraws_i2c_port_t port )
         .flags.enable_internal_pullup = true,
     };
 
-    esp_err_t err = i2c_new_master_bus( &bus_cfg, &_bus_handle[ port ] );
+    err = i2c_new_master_bus( &bus_cfg, &state->handle );
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to create I2C master bus on port %d: 0x%x",
                   port, err );
-        _bus_handle[ port ] = NULL;
+        state->handle = NULL;
     }
     else
     {
@@ -92,6 +181,7 @@ esp_err_t core2foraws_i2c_init( core2foraws_i2c_port_t port )
                   port, _sda_pin[ port ], _scl_pin[ port ] );
     }
 
+    core2foraws_i2c_unlock( port );
     return err;
 }
 
@@ -102,16 +192,51 @@ esp_err_t core2foraws_i2c_deinit( core2foraws_i2c_port_t port )
         return ESP_ERR_INVALID_ARG;
     }
 
-    if( _bus_handle[ port ] == NULL )
+    if( port == CORE2FORAWS_I2C_INTERNAL )
     {
-        return ESP_OK;
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
-    esp_err_t err = i2c_del_master_bus( _bus_handle[ port ] );
-    if( err == ESP_OK )
+    esp_err_t err = _i2c_mutex_ensure( port );
+    if( err != ESP_OK )
     {
-        _bus_handle[ port ] = NULL;
+        return err;
     }
+
+    err = core2foraws_i2c_lock( port );
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
+    core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
+    while( state->devices != NULL )
+    {
+        core2foraws_i2c_device_node_t *node = state->devices;
+        esp_err_t remove_err = i2c_master_bus_rm_device( node->handle );
+        if( remove_err != ESP_OK )
+        {
+            core2foraws_i2c_unlock( port );
+            return remove_err;
+        }
+        state->devices = node->next;
+        free( node );
+    }
+
+    if( state->handle != NULL )
+    {
+        esp_err_t delete_err = i2c_del_master_bus( state->handle );
+        if( err == ESP_OK )
+        {
+            err = delete_err;
+        }
+        if( delete_err == ESP_OK )
+        {
+            state->handle = NULL;
+        }
+    }
+
+    core2foraws_i2c_unlock( port );
 
     return err;
 }
@@ -124,12 +249,13 @@ esp_err_t core2foraws_i2c_get_bus_handle( core2foraws_i2c_port_t port,
         return ESP_ERR_INVALID_ARG;
     }
 
-    if( _bus_handle[ port ] == NULL )
+    core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
+    if( state->handle == NULL )
     {
         return ESP_ERR_INVALID_STATE;
     }
 
-    *handle = _bus_handle[ port ];
+    *handle = state->handle;
     return ESP_OK;
 }
 
@@ -138,15 +264,42 @@ esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
                                       uint32_t scl_speed_hz,
                                       i2c_master_dev_handle_t *dev_handle )
 {
-    if( port >= CORE2FORAWS_I2C_PORT_MAX || dev_handle == NULL )
+    if( port >= CORE2FORAWS_I2C_PORT_MAX || dev_addr > 0x7f ||
+        scl_speed_hz == 0 || dev_handle == NULL )
     {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if( _bus_handle[ port ] == NULL )
+    core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
+    if( state->handle == NULL )
     {
         ESP_LOGE( _TAG, "Bus port %d not initialized", port );
         return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t err = core2foraws_i2c_lock( port );
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
+    for( core2foraws_i2c_device_node_t *node = state->devices;
+         node != NULL; node = node->next )
+    {
+        if( node->address == dev_addr && node->speed_hz == scl_speed_hz )
+        {
+            node->references++;
+            *dev_handle = node->handle;
+            core2foraws_i2c_unlock( port );
+            return ESP_OK;
+        }
+    }
+
+    core2foraws_i2c_device_node_t *node = calloc( 1, sizeof( *node ) );
+    if( node == NULL )
+    {
+        core2foraws_i2c_unlock( port );
+        return ESP_ERR_NO_MEM;
     }
 
     i2c_device_config_t dev_cfg = {
@@ -155,7 +308,7 @@ esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
         .scl_speed_hz = scl_speed_hz,
     };
 
-    esp_err_t err = i2c_master_bus_add_device( _bus_handle[ port ], &dev_cfg, dev_handle );
+    err = i2c_master_bus_add_device( state->handle, &dev_cfg, dev_handle );
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to add device 0x%02x on port %d: 0x%x",
@@ -163,11 +316,24 @@ esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
     }
     else
     {
+        node->handle = *dev_handle;
+        node->address = dev_addr;
+        node->speed_hz = scl_speed_hz;
+        node->references = 1;
+        node->next = state->devices;
+        state->devices = node;
         /* One line per device (registration is rare), so this is safe to
            leave on without flooding the console. */
         ESP_LOGV( _TAG, "Added device 0x%02x on port %d at %lu Hz",
                   dev_addr, port, ( unsigned long ) scl_speed_hz );
     }
+
+    if( err != ESP_OK )
+    {
+        free( node );
+    }
+
+    core2foraws_i2c_unlock( port );
 
     return err;
 }
@@ -179,7 +345,53 @@ esp_err_t core2foraws_i2c_device_remove( i2c_master_dev_handle_t dev_handle )
         return ESP_ERR_INVALID_ARG;
     }
 
-    return i2c_master_bus_rm_device( dev_handle );
+    for( core2foraws_i2c_port_t port = CORE2FORAWS_I2C_INTERNAL;
+         port < CORE2FORAWS_I2C_PORT_MAX; port++ )
+    {
+        if( atomic_load( &_bus_state[ port ].mutex_state ) != I2C_MUTEX_READY )
+        {
+            continue;
+        }
+
+        esp_err_t err = core2foraws_i2c_lock( port );
+        if( err != ESP_OK )
+        {
+            return err;
+        }
+
+        core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
+        core2foraws_i2c_device_node_t *previous = NULL;
+        core2foraws_i2c_device_node_t *node =
+            _i2c_device_find_by_handle( state, dev_handle, &previous );
+        if( node != NULL )
+        {
+            if( --node->references > 0 )
+            {
+                core2foraws_i2c_unlock( port );
+                return ESP_OK;
+            }
+
+            err = i2c_master_bus_rm_device( node->handle );
+            if( err == ESP_OK )
+            {
+                if( previous == NULL )
+                {
+                    state->devices = node->next;
+                }
+                else
+                {
+                    previous->next = node->next;
+                }
+                free( node );
+            }
+            core2foraws_i2c_unlock( port );
+            return err;
+        }
+
+        core2foraws_i2c_unlock( port );
+    }
+
+    return ESP_ERR_NOT_FOUND;
 }
 
 esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
@@ -194,13 +406,12 @@ esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
         return ESP_ERR_INVALID_ARG;
     }
 
-    if( _bus_mutex[ port ] == NULL )
+    if( _bus_state[ port ].handle == NULL )
     {
         return ESP_ERR_INVALID_STATE;
     }
 
-    if( xSemaphoreTake( _bus_mutex[ port ],
-                        pdMS_TO_TICKS( I2C_LOCK_TIMEOUT_MS ) ) != pdTRUE )
+    if( core2foraws_i2c_lock( port ) != ESP_OK )
     {
         ESP_LOGE( _TAG, "I2C read: mutex timeout on port %d", port );
         return ESP_ERR_TIMEOUT;
@@ -237,7 +448,7 @@ esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
                                            I2C_XFER_TIMEOUT_MS );
     }
 
-    xSemaphoreGive( _bus_mutex[ port ] );
+    core2foraws_i2c_unlock( port );
     return err;
 }
 
@@ -247,18 +458,19 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
                                  const uint8_t *buffer,
                                  uint16_t size )
 {
-    if( port >= CORE2FORAWS_I2C_PORT_MAX || dev_handle == NULL )
+    if( port >= CORE2FORAWS_I2C_PORT_MAX || dev_handle == NULL ||
+        ( size > 0 && buffer == NULL ) ||
+        ( ( reg & CORE2FORAWS_I2C_NO_REG ) && size == 0 ) )
     {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if( _bus_mutex[ port ] == NULL )
+    if( _bus_state[ port ].handle == NULL )
     {
         return ESP_ERR_INVALID_STATE;
     }
 
-    if( xSemaphoreTake( _bus_mutex[ port ],
-                        pdMS_TO_TICKS( I2C_LOCK_TIMEOUT_MS ) ) != pdTRUE )
+    if( core2foraws_i2c_lock( port ) != ESP_OK )
     {
         ESP_LOGE( _TAG, "I2C write: mutex timeout on port %d", port );
         return ESP_ERR_TIMEOUT;
@@ -301,7 +513,7 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
             tx_buf = malloc( reg_len + size );
             if( tx_buf == NULL )
             {
-                xSemaphoreGive( _bus_mutex[ port ] );
+                core2foraws_i2c_unlock( port );
                 return ESP_ERR_NO_MEM;
             }
             tx_buf_heap = true;
@@ -317,7 +529,7 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
             tx_buf[ 0 ] = reg & 0xFF;
         }
 
-        if( size > 0 && buffer != NULL )
+        if( size > 0 )
         {
             memcpy( tx_buf + reg_len, buffer, size );
         }
@@ -330,19 +542,20 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
         }
     }
 
-    xSemaphoreGive( _bus_mutex[ port ] );
+    core2foraws_i2c_unlock( port );
     return err;
 }
 
 esp_err_t core2foraws_i2c_lock( core2foraws_i2c_port_t port )
 {
-    if( port >= CORE2FORAWS_I2C_PORT_MAX || _bus_mutex[ port ] == NULL )
+    if( port >= CORE2FORAWS_I2C_PORT_MAX ||
+        atomic_load( &_bus_state[ port ].mutex_state ) != I2C_MUTEX_READY )
     {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if( xSemaphoreTake( _bus_mutex[ port ],
-                        pdMS_TO_TICKS( I2C_LOCK_TIMEOUT_MS ) ) != pdTRUE )
+    if( xSemaphoreTakeRecursive( _bus_state[ port ].mutex,
+                                 pdMS_TO_TICKS( I2C_LOCK_TIMEOUT_MS ) ) != pdTRUE )
     {
         return ESP_ERR_TIMEOUT;
     }
@@ -352,11 +565,13 @@ esp_err_t core2foraws_i2c_lock( core2foraws_i2c_port_t port )
 
 esp_err_t core2foraws_i2c_unlock( core2foraws_i2c_port_t port )
 {
-    if( port >= CORE2FORAWS_I2C_PORT_MAX || _bus_mutex[ port ] == NULL )
+    if( port >= CORE2FORAWS_I2C_PORT_MAX ||
+        atomic_load( &_bus_state[ port ].mutex_state ) != I2C_MUTEX_READY )
     {
         return ESP_ERR_INVALID_ARG;
     }
 
-    xSemaphoreGive( _bus_mutex[ port ] );
-    return ESP_OK;
+    return xSemaphoreGiveRecursive( _bus_state[ port ].mutex ) == pdTRUE
+               ? ESP_OK
+               : ESP_ERR_INVALID_STATE;
 }

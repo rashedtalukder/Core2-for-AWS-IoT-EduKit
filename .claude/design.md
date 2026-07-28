@@ -4,8 +4,7 @@
 > board support packages (BSPs). This document explains *what* the BSP is, *how*
 > it is structured, and — most importantly — *why* it is built this way. The two
 > guiding goals of this project are **stability** and **ease of understanding**.
-
-> **Living document.** This design doc is expected to evolve alongside the BSP.
+> **Living document:** this design doc is expected to evolve alongside the BSP.
 > When the code changes (init flow, public APIs, modules, shared-resource
 > handling, power, build config, or pin usage), this document must be updated in
 > the same change. The maintenance contract is defined in
@@ -31,7 +30,9 @@ This BSP targets the **M5Stack Core2 for AWS IoT Kit** specifically. That kit is
   hardware. The BSP encodes the *correct* wiring so you never have to guess.
 
 **What it is:** a curated set of drivers + a single `core2foraws_init()` entry
-point, written for ESP-IDF v5.3 (with v4.x compatibility branches).
+point, built and tested as an ESP-IDF v5.3 component. PlatformIO is supported
+at the consuming-application level rather than by this component repository
+directly.
 
 **What it is not:** a general-purpose ESP32 devkit library. Do not assume
 standard ESP32 devkit pin defaults — this board reuses many pins for specific
@@ -43,19 +44,20 @@ purposes.
 
 | Principle | What it means in practice |
 | --- | --- |
-| **Stability first** | Shared hardware (buses, the audio clock) is always protected by a lock. Init is idempotent — calling it twice is safe. Failures are reported, not hidden. |
-| **One obvious entry point** | The application includes only [core2foraws.h](../include/core2foraws.h) and calls `core2foraws_init()`. Everything else is opt-in. |
+| **Stability first** | Shared hardware (buses, the audio clock) is protected by a lock. Successfully initialized modules are idempotent, and failures are returned rather than aborting the application. |
+| **One obvious entry point** | The application includes [core2foraws.h](../include/core2foraws.h) and calls `core2foraws_init()` for automatic modules. Audio, SD, expansion-port sessions, and Wi-Fi start remain explicit. |
 | **Hardware truth, encoded once** | Pin maps, power sequencing, and shared-bus rules live in the BSP, not in your app. See [.claude/rules/pinmap.md](rules/pinmap.md) and [.claude/rules/board.md](rules/board.md). |
-| **Predictable error handling** | Every public function returns `esp_err_t`. You can always check success the same way. |
-| **Readable over clever** | Custom chip drivers use a simple function-pointer injection pattern so they read top-to-bottom without hidden global state. |
-| **Pay only for what you use** | Each module is gated behind a `CONFIG_SOFTWARE_*` Kconfig flag. Unused modules are not compiled or initialized. |
+| **Predictable error handling** | Every public function returns `esp_err_t`; values are returned through output parameters. You can always check success the same way. |
+| **Readable over clever** | Device drivers are thin and explicit, with board bus and power dependencies visible at their call sites. |
+| **Pay only for what you use** | The master `SOFTWARE_BSP_SUPPORT` switch gates the common and hardware layers; individual hardware modules are further gated by their `CONFIG_SOFTWARE_*` flags. |
 
 ---
 
 ## 3. The big picture (layered architecture)
 
-The BSP is organized into clear layers. Data and control flow downward; each
-layer only knows about the one directly below it.
+The BSP is organized into clear layers. Dependencies flow toward the hardware,
+with explicit module-to-module dependencies where the board requires them
+(buttons use display/touch, and audio uses power control).
 
 ```mermaid
 graph TD
@@ -76,9 +78,9 @@ graph TD
    function.
 2. **BSP API layer** — the `core2foraws_<module>_*` functions. This is the public
    surface you call. It is board-aware and hides pin numbers and sequencing.
-3. **Device-driver layer** — self-contained chip drivers (e.g. `axp192.c`,
-   `mpu6886.c`). These are pure logic; they receive a "how to talk to I2C"
-   function from the layer above instead of calling ESP-IDF directly.
+3. **Device-driver layer** — focused chip drivers (e.g. `axp192.c`,
+   `mpu6886.c`). They contain register and conversion logic while board-facing
+   wrappers connect them to the common I2C transport.
 4. **Common HAL layer** — the shared-resource managers. This is where the two I2C
    buses, the one shared SPI bus, and the single audio clock are coordinated.
    **This layer is the heart of the "stability" goal.**
@@ -96,7 +98,12 @@ The application's first BSP call is almost always:
 
 void app_main( void )
 {
-    core2foraws_init();   // brings up everything that is enabled in menuconfig
+    esp_err_t err = core2foraws_init();
+    if( err != ESP_OK )
+    {
+        // One or more automatic modules failed; see logs or initialize
+        // individual modules when per-module recovery is required.
+    }
     // ... your code ...
 }
 ```
@@ -115,12 +122,12 @@ graph TD
     S6["6. RTC / BM8563"] --> S7
     S7["7. Crypto / ATECC608<br/>(last I2C device — wake timing)"] --> S8
     S8["8. RGB LED chain<br/>(needs 5V boost)"] --> S9
-    S9["9. Wi-Fi provisioning<br/>(independent, last)"]
+    S9["9. Wi-Fi stack setup<br/>(network resources, last)"]
 ```
 
 **Key design decisions in this sequence:**
 
-- **The internal I2C bus comes first and is the only fatal step.** Almost every
+- **The internal I2C bus comes first and is the only early-return step.** Almost every
   on-board chip (PMU, touch, RTC, IMU, secure element) lives on this bus. If it
   cannot come up, nothing else can, so `init` returns early.
 - **Power (AXP192) comes second.** The PMU owns the rails that feed the display,
@@ -130,13 +137,36 @@ graph TD
 - **Crypto (ATECC608) comes after the other I2C devices.** The secure element has
   a finicky "wake" pulse; doing it last keeps that special handling out of the
   way of simpler devices.
-- **Most failures are non-fatal.** After the I2C bus, each step's result is
-  accumulated (`ret |= err`). A single bad peripheral is reported but does not
-  stop the rest of the board from coming up — important for stability and for a
-  good first-time developer experience.
-- **Audio and SD card are intentionally *not* in this list.** They are brought up
-  on demand by the application, because they hold scarce shared resources (the
-  I2S controller, the SPI bus) that you should claim only when needed.
+- **Later failures are aggregated.** After the I2C bus, each step's result is
+  accumulated (`ret |= err`) and normalized to `ESP_FAIL`. A bad peripheral
+  does not stop later modules from being attempted. The logs identify each
+  failed module; applications that need exact recovery initialize the relevant
+  module independently and inspect its original error code.
+- **Wi-Fi failures are returned.** The Wi-Fi helper does not use aborting error
+  checks and never erases the default NVS partition during initialization.
+- **Audio, SD card, expansion-port sessions, and Wi-Fi start are intentionally
+  on demand.** They claim I2S, filesystem/SPI, external bus/UART, or radio
+  resources only when requested.
+
+### 4.1 Module lifecycle and ownership
+
+| Module | Initialization policy | Long-lived resources | Release / shutdown |
+| --- | --- | --- | --- |
+| common + internal I2C | Automatic foundation when BSP support is enabled; omitted entirely when disabled | Permanent I2C_NUM_0 bus, static recursive mutex, managed fixed-device handles | Board-lifetime resource; deinit is rejected |
+| power | Automatic, after internal I2C | AXP192 device handle and configured rails | `core2foraws_power_off()` powers down the board; there is no ordinary deinit |
+| display | Automatic when enabled | SPI LCD device, locked touch handle, LVGL task and DMA buffers | `core2foraws_display_deinit()` stops refresh and waits for active DMA before releasing display/touch/LVGL resources; shared SPI2 remains active |
+| button | Automatic when enabled | Poll task and callback mutex | No public deinit; lifetime is the application lifetime |
+| motion / RTC / crypto | Automatic when enabled | Internal-I2C device handles; crypto library state | No public deinit; lifetime is the application lifetime |
+| RGB LED | Automatic when enabled | RMT channel and encoder | `core2foraws_rgb_led_deinit()` |
+| Wi-Fi | Stack setup is automatic; idempotent `core2foraws_wifi_start()` is explicit | Default STA netif, event handlers/group, Wi-Fi driver, optional provisioning manager | `core2foraws_wifi_deinit()` stops provisioning/radio before releasing BSP-owned resources |
+| audio | Explicit speaker or microphone enable | I2S_NUM_0 channel; GPIO0 ownership; one lifecycle/data mutex | Disable waits for bounded active I/O, then releases the channel |
+| SD | Explicit `core2foraws_sd_mount()` | SDSPI device, FAT mount at `/sd_card`, state mutex | `core2foraws_sd_unmount()`; display can run between 4 KiB file-I/O chunks |
+| expansion ports | Port A I2C and Port C UART begin explicitly; Port B operations configure on use | Reopenable external I2C bus with multiple managed devices, or UART2 | `core2foraws_expports_i2c_device_remove()` releases one accessory; `i2c_close()` releases all Port A devices/bus |
+
+Calling `core2foraws_init()` again after a successful call is safe: automatic
+modules return `ESP_OK` without duplicating tasks, handles, or reset pulses. If
+an earlier call returned a partial failure, initialize failed modules directly
+when the application needs module-specific recovery.
 
 ---
 
@@ -151,24 +181,29 @@ Common HAL is the referee.
 The board has **two physically distinct I2C buses**, and the BSP keeps them
 distinct on purpose:
 
-| Bus | Pins | Who lives there |
-| --- | --- | --- |
-| **Internal** (`CORE2FORAWS_I2C_INTERNAL`, I2C_NUM_0) | SDA=GPIO21, SCL=GPIO22 | AXP192 PMU, FT6336 touch, BM8563 RTC, MPU6886 IMU, ATECC608 secure element |
-| **External / Port A** (`CORE2FORAWS_I2C_EXTERNAL`, I2C_NUM_1) | SDA=GPIO32, SCL=GPIO33 | Your external Grove "unit" accessories only |
+| Bus | Address | Device / role | Owner and initialization |
+| --- | --- | --- | --- |
+| **Internal** (`CORE2FORAWS_I2C_INTERNAL`, I2C_NUM_0), SDA=GPIO21, SCL=GPIO22 | `0x34` | AXP192 PMU | power, automatic |
+| Internal | `0x38` | FT6336 touch controller | display, automatic |
+| Internal | `0x51` | BM8563 RTC | rtc, automatic |
+| Internal | `0x68` | MPU6886 IMU | motion, automatic |
+| Internal | `0x35` | ATECC608 secure element | crypto, automatic and initialized last among fixed I2C devices |
+| Internal | application-defined | Add-on J3 internal-I2C socket | application; shares the same mutex and pull-ups |
+| **External / Port A** (`CORE2FORAWS_I2C_EXTERNAL`, I2C_NUM_1), SDA=GPIO32, SCL=GPIO33 | application-defined | External Grove "unit" accessories only | expansion ports, on demand |
 
 A common beginner mistake is to assume the IMU or secure element is on the
 external bus. **They are not** — they reach the internal bus through the M5Bus
 connector. The BSP encodes this correctly so you never have to.
 
-### 5.2 The device-handle + per-bus mutex pattern
+### 5.2 Managed devices + recursive per-bus ownership
 
 The BSP uses ESP-IDF's modern `i2c_master.h` API (a "bus + device handle"
 model). The pattern is:
 
 ```mermaid
 graph LR
-    subgraph "Internal Bus (one mutex)"
-        M1["bus mutex"]
+    subgraph "Internal Bus (one recursive mutex)"
+      M1["recursive bus ownership"]
         D1["AXP192 handle"]
         D2["touch handle"]
         D3["RTC handle"]
@@ -187,15 +222,20 @@ graph LR
     D5 -.guarded by.-> M1
 ```
 
-- Each peripheral registers itself once with
-  `core2foraws_i2c_device_add(port, addr, speed, &handle)` and keeps its own
-  handle.
-- Every read/write goes through `core2foraws_i2c_read/write`, which **takes the
-  per-bus mutex, does the transfer, then releases it.** This means two FreeRTOS
-  tasks can never corrupt each other's I2C transaction — the central guarantee
-  behind the BSP's stability.
-- For rare cases that need several operations to be atomic (the secure element's
-  wake pulse), `core2foraws_i2c_lock()/unlock()` expose the mutex directly.
+- Each bus owns a state object containing the ESP-IDF bus handle, a statically
+  allocated recursive mutex, and a list of managed device registrations.
+- Re-registering the same address and speed shares one device handle through a
+  reference count. This is useful on external Port A, where several accessories
+  may be present and clients can independently acquire/release handles.
+- Every wrapper read/write recursively takes bus ownership. Multi-transfer
+  register updates can take ownership once and call wrapper APIs inside it
+  without deadlock; AXP192 and BM8563 read-modify-write sequences use this.
+- The raw bus handle is an escape hatch for `esp_lcd_touch`. The BSP touch read
+  function explicitly takes internal-bus ownership around both panel-I/O read
+  and coordinate extraction, so LVGL, buttons, and the ATECC wake pulse cannot
+  drive the same lines concurrently.
+- The internal bus is permanent because fixed board modules retain handles. The
+  external bus can close and reopen; close removes every managed accessory.
 
 This pattern is also why init is **idempotent**: calling
 `core2foraws_i2c_init()` again on an already-running bus simply returns `ESP_OK`.
@@ -203,10 +243,19 @@ This pattern is also why init is **idempotent**: calling
 ### 5.3 The shared SPI bus (LCD + SD card)
 
 The LCD and the SD card **share one SPI controller** (MOSI=23, MISO=38, SCK=18)
-with separate chip-selects (LCD CS=5, SD CS=4). They are coordinated by a single
-shared semaphore, `core2foraws_common_spi_semaphore`, created lazily by whichever
-of the display or SD module initializes first. Any code touching the SD card
-takes this semaphore so it cannot collide with an LCD refresh.
+with separate chip-selects (LCD CS=5, SD CS=4). Common owns race-safe,
+board-lifetime SPI2 initialization, so display and SD can initialize in either
+order. They are coordinated by the binary
+`core2foraws_common_spi_semaphore`.
+
+The display takes the semaphore on LVGL's `LV_EVENT_FLUSH_START` event and gives
+it from the SPI color-transfer completion callback, so the lock covers the full
+asynchronous DMA transfer rather than only transaction enqueue. SD mount, file
+I/O, and unmount hold the same semaphore for their operations. A binary
+semaphore is required because LCD acquisition happens in the LVGL task while
+release happens in the completion callback. SD lifecycle state has a separate
+mutex; file data is transferred in 4 KiB chunks and releases the SPI semaphore
+between chunks so a large file cannot starve display refresh indefinitely.
 
 ### 5.4 The shared audio clock (GPIO0)
 
@@ -214,9 +263,9 @@ The speaker amp (NS4168) and the microphone (SPM1423) **share GPIO0** and the
 single `I2S_NUM_0` controller. They are therefore **mutually exclusive** — you
 can play *or* record, but not both at once. The audio module enforces this with a
 static mutex and state flags; calling `speaker_write()` while the mic is enabled
-returns `ESP_ERR_INVALID_STATE`. This is a hardware constraint, not a software
-limitation, and the BSP makes the constraint explicit instead of letting you trip
-over it silently.
+returns `ESP_ERR_INVALID_STATE`. Data reads/writes hold that same mutex with a
+bounded timeout, so another task cannot delete the active I2S channel mid-DMA.
+This is a hardware constraint, not a software limitation.
 
 ### 5.5 Buffer placement — internal DRAM vs. PSRAM
 
@@ -226,9 +275,13 @@ DMA-capable and fast. The BSP keeps every DMA- or latency-critical buffer in
 internal DRAM and leaves PSRAM for large, CPU-only, latency-tolerant data.
 
 - **LVGL display draw buffers stay in internal DRAM** (`buff_dma = true`,
-  `buff_spiram = false`). Moving them to PSRAM forces non-DMA byte copies that
-  stall the LVGL flush and cause UI hangs/crashes; keeping them internal
-  *raised* the framerate even after the draw-buffer line count was reduced.
+  `buff_spiram = false`). The display uses two 40-line RGB565 buffers (51,200
+  bytes total). Moving them to PSRAM forces non-DMA byte copies that stall the
+  LVGL flush and cause UI hangs/crashes.
+- **Fifty lines is the performance recommendation when DRAM permits.** Two
+  50-line buffers use 64,000 bytes, reducing partial-transfer overhead at the
+  cost of 12,800 additional bytes of internal DMA-capable RAM. Any increase
+  must be validated against application DRAM headroom; PSRAM is not a fallback.
 - **Audio I2S, SD/shared-SPI, and SK6812 RMT buffers** are likewise internal —
   their DMA engines cannot reach PSRAM.
 - **Application scratch/payload buffers** (mic copies, UART payloads, crypto
@@ -270,9 +323,11 @@ Nearly every rail and several control signals run through it.
 
 ## 7. Module catalog
 
-Each module exposes a small, consistent API and is independently toggleable in
-menuconfig. You include only [core2foraws.h](../include/core2foraws.h); it pulls
-in the headers for the modules you enabled.
+Each hardware module exposes a small, consistent API and is independently
+toggleable in menuconfig. The master BSP switch controls the common layer and
+all hardware support. You include [core2foraws.h](../include/core2foraws.h); when
+BSP support is enabled it pulls in common plus the headers for enabled hardware
+modules. When BSP support is disabled, only `core2foraws_init()` remains exposed.
 
 | Module | What it gives you | Wraps / driver |
 | --- | --- | --- |
@@ -291,19 +346,32 @@ in the headers for the modules you enabled.
 
 ### Notable per-module design choices
 
-- **button** runs a dedicated 20 ms polling FreeRTOS task that reads the touch
-  controller and maps touches to three rectangles below the screen. A mutex
-  protects the callback table so registering/unregistering is thread-safe.
+- **button** runs a dedicated 20 ms polling FreeRTOS task that reads up to two
+  simultaneous FT6336 touch points and maps them to three rectangles below the
+  screen. A mutex protects the callback table, and debounce is configurable by
+  `CONFIG_CORE2FORAWS_BUTTON_DEBOUNCE_MS` (30 ms by default).
 - **crypto** uses a linker `--wrap` trick to force the third-party
   `esp-cryptoauthlib` onto the BSP's shared internal I2C bus, instead of letting
   it open a second, unmanaged bus. This keeps *all* internal-bus devices behind
-  the one mutex — a deliberate choice favoring stability over convenience.
+  the one mutex. [CMakeLists.txt](../CMakeLists.txt) wraps the cryptoauthlib
+  `hal_i2c_*` entry points, and [core2foraws_crypto_hal.c](../lib/crypto/core2foraws_crypto_hal.c)
+  implements them with the common I2C API.
 - **rgb_led** treats the strip as **one device with 10 pixels** (not 10 separate
   LEDs), driven by the RMT peripheral with precise SK6812 timing. The strip is
-  powered from 5 V, so it only works after the PMU enables the boost rail.
+  powered from 5 V, so it only works after the PMU enables the boost rail. A
+  module mutex protects color state and channel lifetime; each write waits for
+  the prior asynchronous transfer before modifying its DMA source buffer.
 - **wifi** provisions over BLE and stores credentials in NVS, auto re-provisioning
   after repeated failures. Connection state is published through a FreeRTOS event
-  group.
+  group. Initialization returns NVS/network errors without erasing the default
+  NVS partition; `core2foraws_wifi_reset()` clears only persistent Wi-Fi state.
+  Start is idempotent, QR rendering is auxiliary after provisioning starts, and
+  deinit stops an active provisioning manager and radio before destroying the
+  netif/event resources.
+- **expports** serializes mode changes and I/O against reset. Port C UART reads
+  require destination capacity and never remove more bytes than fit. Port B
+  rolls back partial ADC/UART allocation failures and supports raw ADC reads
+  when eFuse calibration is unavailable.
 
 ---
 
@@ -322,6 +390,10 @@ Knowing these conventions makes the whole codebase easy to read.
       ESP_LOGE( TAG, "accel read failed: 0x%x", err );
   }
   ```
+
+  Values are returned through output parameters. For example,
+  `core2foraws_display_get_touch_handle(&touch_handle)` returns status separately
+  from the handle.
 
 - Common codes and their meaning:
   - `ESP_ERR_INVALID_ARG` — a null pointer or out-of-range value you passed.
@@ -360,6 +432,25 @@ used consistently:
 Secrets (e.g. the provisioned Wi-Fi password) are never logged; only
 non-sensitive metadata such as length is emitted.
 
+### 8.3 Thread safety summary
+
+| Resource | Protection |
+| --- | --- |
+| Internal I2C bus | static recursive mutex; permanent managed devices; raw touch transactions explicitly participate |
+| External I2C bus | static recursive mutex; reference-counted devices; close/reopen lifecycle |
+| SPI bus (LCD/SD) | common one-time bus owner; binary semaphore from LVGL flush start through LCD DMA completion and per SD chunk |
+| SD mount/filesystem state | module mutex across mount/read/write/unmount lifecycle |
+| Audio (GPIO0 / I2S) | static mutex across lifecycle and bounded data I/O + state flags |
+| RGB RMT channel/buffers | module mutex; previous TX completion required before buffer reuse/deinit |
+| Expansion pin modes | recursive module mutex across mode changes and I/O |
+| Button callback table | module mutex |
+| Wi-Fi connection state | event group for status + lifecycle mutex for start/deinit ownership |
+
+Successful init functions are **idempotent** (guarded by flags or null-handle
+checks), so repeating a successful `core2foraws_init()` does not duplicate tasks
+or device handles. After a partial aggregate failure, initialize failed modules
+directly for precise recovery.
+
 ### 8.4 Task footprint and core affinity
 
 The BSP creates two long-lived FreeRTOS tasks, both kept off core 0 so they do
@@ -371,47 +462,82 @@ not contend with the Wi-Fi stack and IDF event loop that run there by default:
 | Virtual-button poll | `buttonPress` | `configMINIMAL_STACK_SIZE * 6` | 1 | 20 ms touch poll; logs its own watermark once after the first poll. |
 
 Stacks are intentionally sized with headroom rather than trimmed blindly. To
-right-size them, call `core2foraws_common_task_stack_watermark()` (pass `NULL`
-for the calling task, or a handle from `xTaskGetHandle()` for another) under a
-realistic workload: it logs and returns the minimum free stack in bytes. Keep a
+right-size them, call
+`core2foraws_common_task_stack_watermark(tag, task, &watermark_bytes)` under a
+realistic workload. Pass `NULL` for the calling task or a handle from
+`xTaskGetHandle()` for another. The function logs the result, writes the minimum
+free stack in bytes to the output parameter, and returns `esp_err_t`. Keep a
 safety margin above the observed peak; under-sizing the LVGL stack reproduces
 the canvas-render overflow it was raised to fix.
 
 Set the log level in menuconfig (`Component config → Log output`) to see more or
 less.
 
-### 8.3 Thread safety summary
-
-| Resource | Protection |
-| --- | --- |
-| Internal I2C bus | per-bus mutex (in common HAL) |
-| External I2C bus | per-bus mutex (in common HAL) |
-| SPI bus (LCD/SD) | shared semaphore |
-| Audio (GPIO0 / I2S) | static mutex + state flags |
-| Button callback table | module mutex |
-| Wi-Fi connection state | event group |
-
-All init functions are **idempotent** (guarded by flags or null-handle checks),
-so accidental double-initialization is safe.
-
 ---
 
 ## 9. Build configuration
 
-- **Framework:** ESP-IDF v5.3 (the modern target). The build also contains v4.x
-  compatibility branches for the ADC component and the `qrcode` dependency, so it
-  still compiles on older toolchains.
+### 9.1 Supported build matrix
+
+| Layer | Supported environment | How it is validated |
+| --- | --- | --- |
+| BSP component | ESP-IDF v5.3 | Built as a component inside a consuming ESP-IDF application |
+| Application integration | PlatformIO `espressif32` v6.9+ | Built by consuming applications such as the project template; this repository does not contain `platformio.ini` |
+| ESP-IDF v4.x | Not supported | Some legacy conditional branches remain, but v5-only driver APIs and component names define the actual minimum |
+
+- **Component, not standalone application:** this repository has no top-level
+  `sdkconfig` or application `main`, so build and test commands run from a
+  consuming project.
 - **Recommended starting point:** the
   [Project Template](https://github.com/m5stack/Project_Template-Core2_for_AWS),
   which already wires in the managed dependencies.
-- **Conditional compilation:** [CMakeLists.txt](../CMakeLists.txt) only compiles a
-  module's sources when its `CONFIG_SOFTWARE_*_SUPPORT` flag is set, and
-  [Kconfig](../Kconfig) exposes those flags under
-  *"Core2 for AWS hardware features."* The master switch is
-  `SOFTWARE_BSP_SUPPORT` (default on); every other feature depends on it.
+- **Conditional compilation:** [CMakeLists.txt](../CMakeLists.txt) always compiles
+  the umbrella `core2foraws.c`. When `SOFTWARE_BSP_SUPPORT` is enabled it also
+  compiles common, I2C, power, and each selected hardware module. When the master
+  switch is disabled, common headers and sources are omitted and
+  `core2foraws_init()` returns `ESP_OK` directly. [Kconfig](../Kconfig) exposes
+  the flags under *"Core2 for AWS hardware features."*
+- **Monolithic dependency graph:** source selection follows Kconfig, but ESP-IDF
+  expands component `REQUIRES` before Kconfig-dependent CMake logic is reliable.
+  Therefore this single component keeps a stable superset of ESP-IDF
+  requirements. True dependency pruning requires packaging modules as separate
+  ESP-IDF components and is intentionally not attempted as an in-place tweak.
 - **Managed dependencies** ([idf_component.yml](../idf_component.yml)):
   `esp-cryptoauthlib`, LVGL 9, `esp_lvgl_port`, `esp_lcd_touch` (+ FT5x06
-  driver), `esp_lcd_ili9341`, and (on IDF 5) `qrcode`.
+  compatible driver for FT6336), `esp_lcd_ili9341` (used for the
+  ILI9342C-compatible command set), and `qrcode`.
+
+### 9.2 Verification strategy
+
+Every change should use the narrowest relevant checks first, then cover the
+integration combinations affected by the change:
+
+1. Build a consuming ESP-IDF v5.3 application with the default feature set.
+2. Build with `SOFTWARE_BSP_SUPPORT=n` to verify the umbrella no-op path links
+  without any common or hardware source.
+3. Build affected feature combinations, especially display+SD, Wi-Fi without
+   display, and audio speaker/microphone support.
+4. Run application-level PlatformIO builds where the consuming application uses
+   PlatformIO; PlatformIO configuration does not belong in this component.
+5. On hardware, smoke-test aggregate init, repeat init after success, I2C device
+   reads, concurrent LVGL refresh plus SD I/O, speaker/microphone exclusion,
+   Wi-Fi provisioning/reset, and NVS preservation.
+
+This repository currently relies on consuming-application builds and hardware
+smoke tests rather than a standalone host test runner. Changes to shared buses,
+DMA buffers, or lifecycle ownership require the corresponding hardware test.
+
+### 9.3 Key decision records
+
+| Decision | Status and rationale |
+| --- | --- |
+| Aggregate umbrella initialization | Accepted: continue after non-foundational failures and return aggregate `ESP_FAIL`; applications needing exact errors call module init functions directly. |
+| Common layer follows master BSP switch | Accepted: a disabled BSP build omits all common sources and headers; the umbrella initializer returns `ESP_OK` before referencing common code. |
+| Internal/external I2C ownership | Accepted: separate state objects, static recursive locks, managed/ref-counted device handles, permanent internal lifetime, and reopenable external lifetime. |
+| LCD/SD arbitration | Accepted: common owns SPI2; one binary semaphore spans asynchronous LCD DMA and bounded SD chunks. |
+| Display memory | Accepted: two 40-line buffers in internal DMA RAM; 50 lines is recommended only after validating DRAM headroom. |
+| Audio integration | Raw `i2s_std`/`i2s_pdm` retained for now; `esp_codec_dev` remains a future maintenance option but cannot remove the GPIO0 mutual-exclusion constraint. |
+| Secure-element naming | Public documentation and APIs use the board-level name `ATECC608` without a revision suffix. |
 
 ---
 
@@ -457,4 +583,3 @@ write low-level code, keep them in mind. The full pin map is in
   effect.
 - **Secure element (ATECC608)** — a tamper-resistant chip that stores the device's
   private key for AWS IoT, so the key never leaves the hardware.
-```

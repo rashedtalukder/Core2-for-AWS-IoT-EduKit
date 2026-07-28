@@ -40,22 +40,14 @@ extern "C" {
 #include <sdmmc_cmd.h>
 #include <esp_err.h>
 
-#ifndef SD_ACCESS_DELAY_MS
-/**
- * @brief Delay time added to SD card operations
- */
-/* @[declare_sd_access_delay_ms] */
-#define SD_ACCESS_DELAY_MS 100U
-/* @[declare_sd_access_delay_ms] */
-#endif
-
 /**
  * @brief Initializes and mounts the SD card.
  *
  * @note The SD card must be mounted before use. The SD card
  * and the screen share the same SPI bus, with each device 
  * having it's own CS line. Frequent writes to the SD card 
- * can cause slow down of the screen writes. In order to protect
+ * can slow screen writes. File I/O is split into bounded chunks so
+ * display flushes can acquire the shared bus between chunks. To protect
  * access to the device, a mutex has been placed for each of SD
  * card APIs to make it thread-safe in the event there are
  * multiple tasks attempting to access the device at once.
@@ -226,12 +218,9 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
  * before removing SD card from the device.
  *
  * @note The SD Card must be mounted before use. The SD card
- * and the screen uses the same SPI bus. In order to avoid
- * conflicts with the screen, you must take the spi_mutex
- * semaphore, then call spi_poll() before accessing the SD card.
- * Once done, give/free the semaphore so the display can take it.
- * The display task will then continue to update the display
- * controller on the SPI bus.
+ * and the screen use the same SPI bus. The BSP serializes unmount against
+ * file operations and display DMA automatically; applications must not take
+ * the shared SPI semaphore around this API.
  *
  * To learn more about using the SD card, visit Espressif's virtual
  * [file system component](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/storage/vfs.html)

@@ -40,16 +40,20 @@ static i2c_master_dev_handle_t _atecc_dev = NULL;
  * touch panel, and MPU6886; without the lock the 80 µs SDA-low pulse
  * would corrupt a concurrent transaction to one of those devices.
  */
-static void _atecc_wake_pulse( void )
+static esp_err_t _atecc_wake_pulse( void )
 {
-    core2foraws_i2c_lock( CORE2FORAWS_I2C_INTERNAL );
+    esp_err_t err = core2foraws_i2c_lock( CORE2FORAWS_I2C_INTERNAL );
+    if( err != ESP_OK )
+    {
+        return err;
+    }
     gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_OUTPUT_OD );
     gpio_set_level( ATECC_SDA_PIN, 0 );
     esp_rom_delay_us( 80 );
     gpio_set_level( ATECC_SDA_PIN, 1 );
     /* Restore SDA to I2C peripheral control */
     gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_INPUT_OUTPUT_OD );
-    core2foraws_i2c_unlock( CORE2FORAWS_I2C_INTERNAL );
+    return core2foraws_i2c_unlock( CORE2FORAWS_I2C_INTERNAL );
 }
 
 /**
@@ -76,7 +80,10 @@ static ATCA_STATUS _atecc_wake( ATCAIface iface )
 
     /* Drive SDA low for ≥60 µs to wake the ATECC608, serialized against
      * other devices sharing the internal I2C bus */
-    _atecc_wake_pulse();
+    if( _atecc_wake_pulse() != ESP_OK )
+    {
+        return ATCA_COMM_FAIL;
+    }
 
     /* Wait tWHI + tWLO */
     atca_delay_us( cfg->wake_delay );
@@ -158,8 +165,8 @@ ATCA_STATUS __wrap_hal_i2c_send( ATCAIface iface, uint8_t word_address,
         {
             /* Wake pulse — drive SDA low via GPIO instead of I2C driver,
              * serialized against other devices on the shared internal bus */
-            _atecc_wake_pulse();
-            return ATCA_SUCCESS;
+            return _atecc_wake_pulse() == ESP_OK ? ATCA_SUCCESS
+                                                  : ATCA_COMM_FAIL;
         }
     }
 

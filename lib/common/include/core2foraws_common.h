@@ -62,44 +62,47 @@ extern "C" {
 /* @[declare_core2foraws_common_i2s_internal] */
 
 /**
- * @brief FreeRTOS semaphore to be used when performing any
- * operation on the display or SD card reader.
+ * @brief FreeRTOS binary semaphore used to serialize display and SD card SPI
+ * transfers.
  * 
  * The display and SD card share a SPI bus.
  *
- * @note To avoid conflicts with multiple threads attempting to
- * write to the SPI bus, take this FreeRTOS semaphore first,
- * use the [LVGL API(s)](https://docs.lvgl.io/7.11/overview/index.html)
- * or SD APIs of choice, and then give the semaphore.
- *
- * **Example:**
- *
- * Create a LVGL label widget, set the text of the label to "Hello 
- * World!", and align the label to the center of the screen.
- * @code{c}
- *  #include <stdint.h>
- *  #include <stdbool.h>
- *  #include "core2foraws.h"
- * 
- *  void app_main( void )
- *  {
- *      core2foraws_init();
- * 
- *      xSemaphoreTake( core2foraws_common_spi_semaphore, pdMS_TO_TICKS( 40 ) );
- * 
- *      lv_obj_t * main_screen = lv_scr_act();
- *      lv_obj_t * hello_label = lv_label_create( main_screen, NULL );
- *      lv_label_set_text_static( hello_label, "Hello World!" );
- *      lv_obj_align( hello_label, NULL, LV_ALIGN_CENTER, 0, 0 );
- *
- *      xSemaphoreGive( core2foraws_common_spi_semaphore );
- *  }
- *  
- * @endcode
+ * @note The BSP display and SD modules take this semaphore automatically.
+ * Application code should use the LVGL port lock for LVGL object access and
+ * only take this semaphore directly when adding another device or raw
+ * transaction to the shared SPI bus.
  */
 /* @[declare_core2foraws_common_spi_semaphore] */
 extern SemaphoreHandle_t core2foraws_common_spi_semaphore;
 /* @[declare_core2foraws_common_spi_semaphore] */
+
+/**
+ * @brief Creates the shared display/SD SPI semaphore if needed.
+ *
+ * This function is idempotent. The semaphore is binary rather than a mutex so
+ * an asynchronous LCD transfer can take it from the LVGL task and release it
+ * from the SPI completion callback.
+ *
+ * @return
+ *  - ESP_OK         : Success or already initialized
+ *  - ESP_ERR_NO_MEM : Semaphore allocation failed
+ */
+/* @[declare_core2foraws_common_spi_semaphore_init] */
+esp_err_t core2foraws_common_spi_semaphore_init( void );
+/* @[declare_core2foraws_common_spi_semaphore_init] */
+
+/**
+ * @brief Initializes the board's shared SPI2 bus for the LCD and SD card.
+ *
+ * The bus has fixed board wiring and is initialized once for the BSP lifetime.
+ * The function is thread-safe and idempotent, so display and SD can initialize
+ * in either order.
+ *
+ * @return ESP_OK on success, otherwise an ESP-IDF SPI initialization error.
+ */
+/* @[declare_core2foraws_common_spi_bus_init] */
+esp_err_t core2foraws_common_spi_bus_init( void );
+/* @[declare_core2foraws_common_spi_bus_init] */
 
 /**
  * @brief Function used to standardize error returns.
@@ -117,8 +120,8 @@ esp_err_t core2foraws_common_error( int32_t error_code );
 /**
  * @brief Report the minimum free stack ("high-water mark") of a task.
  *
- * Returns, and logs at info level, the smallest amount of unused stack the
- * task has ever had since it started, expressed in bytes. Use it to size
+ * Gets, and logs at info level, the smallest amount of unused stack the task
+ * has ever had since it started, expressed in bytes. Use it to size
  * FreeRTOS task stacks: run your real workload, read the watermark, and keep
  * a safety margin above the peak usage (allocation minus reported free).
  *
@@ -136,16 +139,23 @@ esp_err_t core2foraws_common_error( int32_t error_code );
  *
  *  core2foraws_init();
  *  TaskHandle_t lvgl = xTaskGetHandle( "LVGL task" );
- *  core2foraws_common_task_stack_watermark( "APP", lvgl );
+ *  size_t free_stack_bytes;
+ *  esp_err_t err = core2foraws_common_task_stack_watermark(
+ *      "APP", lvgl, &free_stack_bytes );
  * @endcode
  *
  * @param[in] tag  Log tag to print under. If `NULL`, a default tag is used.
  * @param[in] task Handle of the task to inspect, or `NULL` for the caller.
- * @return Minimum free stack in bytes since the task started.
+ * @param[out] watermark_bytes Minimum free stack in bytes since the task
+ * started.
+ * @return
+ *  - ESP_OK              : Success
+ *  - ESP_ERR_INVALID_ARG : @p watermark_bytes is `NULL`
  */
 /* @[declare_core2foraws_common_task_stack_watermark] */
-size_t core2foraws_common_task_stack_watermark( const char *tag,
-                                                TaskHandle_t task );
+esp_err_t core2foraws_common_task_stack_watermark( const char *tag,
+                                                   TaskHandle_t task,
+                                                   size_t *watermark_bytes );
 /* @[declare_core2foraws_common_task_stack_watermark] */
 
 #ifdef __cplusplus

@@ -26,6 +26,7 @@
  */
 
 #include <stdint.h>
+#include <stdatomic.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
@@ -69,16 +70,40 @@ static i2s_chan_handle_t _rx_handle = NULL;
    valid from first use without a separate init step. */
 static StaticSemaphore_t _audio_mutex_buf;
 static SemaphoreHandle_t _audio_mutex = NULL;
+static atomic_uchar _audio_mutex_state;
+
+enum
+{
+    AUDIO_MUTEX_UNINITIALIZED = 0,
+    AUDIO_MUTEX_INITIALIZING,
+    AUDIO_MUTEX_READY,
+};
 
 static SemaphoreHandle_t _core2foraws_audio_mutex_get( void )
 {
-    /* xSemaphoreCreateMutexStatic() is deterministic and never allocates,
-       so the handle is the address of the static buffer once created. */
-    if ( _audio_mutex == NULL )
+    if( atomic_load( &_audio_mutex_state ) == AUDIO_MUTEX_READY )
+    {
+        return _audio_mutex;
+    }
+
+    unsigned char expected = AUDIO_MUTEX_UNINITIALIZED;
+    if( atomic_compare_exchange_strong( &_audio_mutex_state, &expected,
+                                        AUDIO_MUTEX_INITIALIZING ) )
     {
         _audio_mutex = xSemaphoreCreateMutexStatic( &_audio_mutex_buf );
+        atomic_store( &_audio_mutex_state,
+                      _audio_mutex != NULL ? AUDIO_MUTEX_READY
+                                           : AUDIO_MUTEX_UNINITIALIZED );
+        return _audio_mutex;
     }
-    return _audio_mutex;
+
+    while( atomic_load( &_audio_mutex_state ) == AUDIO_MUTEX_INITIALIZING )
+    {
+        taskYIELD();
+    }
+    return atomic_load( &_audio_mutex_state ) == AUDIO_MUTEX_READY
+               ? _audio_mutex
+               : NULL;
 }
 
 static const char *_TAG = "CORE2FORAWS_AUDIO";
@@ -98,7 +123,10 @@ esp_err_t core2foraws_audio_speaker_enable( bool state )
         return ESP_ERR_NO_MEM;
     }
 
-    xSemaphoreTake( mutex, portMAX_DELAY );
+    if( xSemaphoreTake( mutex, pdMS_TO_TICKS( AUDIO_IO_TIMEOUT_MS ) ) != pdTRUE )
+    {
+        return ESP_ERR_TIMEOUT;
+    }
     esp_err_t err = state ? _core2foraws_audio_speaker_install() : _core2foraws_audio_speaker_remove();
     xSemaphoreGive( mutex );
 
@@ -113,7 +141,10 @@ esp_err_t core2foraws_audio_mic_enable( bool state )
         return ESP_ERR_NO_MEM;
     }
 
-    xSemaphoreTake( mutex, portMAX_DELAY );
+    if( xSemaphoreTake( mutex, pdMS_TO_TICKS( AUDIO_IO_TIMEOUT_MS ) ) != pdTRUE )
+    {
+        return ESP_ERR_TIMEOUT;
+    }
     esp_err_t err = state ? _core2foraws_audio_mic_install() : _core2foraws_audio_mic_remove();
     xSemaphoreGive( mutex );
 
@@ -122,18 +153,30 @@ esp_err_t core2foraws_audio_mic_enable( bool state )
 
 esp_err_t core2foraws_audio_speaker_write( const uint8_t *sound_buffer, size_t to_write_length )
 {
-    esp_err_t err = ESP_FAIL;
-
     if ( ( sound_buffer == NULL ) || ( to_write_length == 0 ) )
     {
         ESP_LOGE( _TAG, "Speaker write requires a valid buffer and length." );
         return ESP_ERR_INVALID_ARG;
     }
 
+    SemaphoreHandle_t mutex = _core2foraws_audio_mutex_get();
+    if( mutex == NULL )
+    {
+        return ESP_ERR_NO_MEM;
+    }
+    if( xSemaphoreTake( mutex, pdMS_TO_TICKS( AUDIO_IO_TIMEOUT_MS ) ) != pdTRUE )
+    {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t err = ESP_FAIL;
+
     if ( ( _microphone_initialized == false ) && ( _speaker_initialized == true ) )
     {
         size_t bytes_written = 0;
-        err = i2s_channel_write( _tx_handle, sound_buffer, to_write_length, &bytes_written, portMAX_DELAY );
+        err = i2s_channel_write( _tx_handle, sound_buffer, to_write_length,
+                     &bytes_written,
+                     pdMS_TO_TICKS( AUDIO_IO_TIMEOUT_MS ) );
         if ( ( err == ESP_OK ) && ( bytes_written != to_write_length ) )
         {
             ESP_LOGW( _TAG, "Speaker wrote %u of %u bytes.", ( unsigned int ) bytes_written, ( unsigned int ) to_write_length );
@@ -148,13 +191,12 @@ esp_err_t core2foraws_audio_speaker_write( const uint8_t *sound_buffer, size_t t
         err = ESP_ERR_INVALID_STATE;
     }
 
+    xSemaphoreGive( mutex );
     return err;
 }
 
 esp_err_t core2foraws_audio_mic_read( int8_t *sound_buffer, size_t to_read_length , size_t *was_read_length )
 {
-    esp_err_t err = ESP_FAIL;
-
     if ( was_read_length != NULL )
     {
         *was_read_length = 0;
@@ -166,9 +208,23 @@ esp_err_t core2foraws_audio_mic_read( int8_t *sound_buffer, size_t to_read_lengt
         return ESP_ERR_INVALID_ARG;
     }
 
+    SemaphoreHandle_t mutex = _core2foraws_audio_mutex_get();
+    if( mutex == NULL )
+    {
+        return ESP_ERR_NO_MEM;
+    }
+    if( xSemaphoreTake( mutex, pdMS_TO_TICKS( AUDIO_IO_TIMEOUT_MS ) ) != pdTRUE )
+    {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t err = ESP_FAIL;
+
     if ( ( _speaker_initialized == false) && ( _microphone_initialized == true ) )
     {
-        err = i2s_channel_read( _rx_handle, sound_buffer, to_read_length, was_read_length, portMAX_DELAY );
+        err = i2s_channel_read( _rx_handle, sound_buffer, to_read_length,
+                    was_read_length,
+                    pdMS_TO_TICKS( AUDIO_IO_TIMEOUT_MS ) );
         /* Per-buffer trace only (never per sample) to keep the UART quiet
            even when verbose logging is enabled during audio capture. */
         ESP_LOGV( _TAG, "Microphone read %u of %u bytes (0x%x).", ( unsigned int ) *was_read_length, ( unsigned int ) to_read_length, err );
@@ -179,6 +235,7 @@ esp_err_t core2foraws_audio_mic_read( int8_t *sound_buffer, size_t to_read_lengt
         err = ESP_ERR_INVALID_STATE;
     }
 
+    xSemaphoreGive( mutex );
     return err;
 }
 

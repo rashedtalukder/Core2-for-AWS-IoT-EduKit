@@ -116,7 +116,8 @@ extern EventGroupHandle_t wifi_event_group;
  * @brief Initializes Wi-Fi and Wi-Fi provisioning manager over BLE.
  * 
  * @note This function is automatically called by @ref core2foraws_init if the feature
- * is enabled.
+ * is enabled. Repeating it after successful initialization returns ESP_OK
+ * without recreating the netif, event group, or event handlers.
  * 
  * This function will initialize all required hardware for BLE provisioning process to 
  * collect Wi-Fi credentials using the 
@@ -129,11 +130,20 @@ extern EventGroupHandle_t wifi_event_group;
  * 
  * After @ref WIFI_RETRIES_MAX_FAILS failures to connect, the app will restart the 
  * provisioning cycle over BLE.
+ * Repeated calls after a successful start return ESP_OK. If provisioning starts
+ * but console QR rendering fails, this function logs a warning and still returns
+ * ESP_OK because the radio/provisioning service is usable.
+ *
+ * @note Initialization never erases the default NVS partition. If NVS cannot
+ * be initialized, this function returns the NVS error so unrelated application
+ * namespaces remain untouched.
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
  *  - ESP_ERR_WIFI_NOT_INIT : WiFi is not initialized
  *  - ESP_ERR_NO_MEM        : Out of memory
+ *  - ESP_ERR_NVS_NO_FREE_PAGES : NVS has no free pages; no data is erased
+ *  - ESP_ERR_NVS_NEW_VERSION_FOUND : NVS format is unsupported; no data is erased
  *  - ESP_FAIL              : Failed to start up the provisioning manager.
  */
 /* @[declare_core2foraws_wifi_init] */
@@ -194,9 +204,12 @@ esp_err_t core2foraws_wifi_start( void );
 /* @[declare_core2foraws_wifi_start] */
 
 /**
- * @brief Deinitializes the Wi-Fi driver.
- * This function will disconnect from the Wi-Fi network and free up 
- * resources that were allocated for the Wi-Fi stack.
+ * @brief Deinitializes BSP-owned Wi-Fi resources.
+ *
+ * Stops an active provisioning manager and radio before deinitializing the
+ * driver, unregistering handlers, and destroying the BSP STA netif/event
+ * resources. If driver stop/deinit fails, dependent resources are retained so
+ * the application can retry safely.
  * 
  * **Example:**
  * 
@@ -330,10 +343,11 @@ esp_err_t core2foraws_wifi_connect( void );
 /* @[declare_core2foraws_wifi_connect] */
 
 /**
- * @brief Reset internal Wi-Fi state machine and clear provisioned credentials.
+ * @brief Reset internal Wi-Fi state and clear only persistent Wi-Fi
+ * configuration.
  * 
- * This function erases the stored credentials and restarts the Wi-Fi provisioning 
- * process.
+ * This function calls `esp_wifi_restore()`. It does not erase the default NVS
+ * partition or keys owned by other application namespaces.
  * 
  * **Example:**
  * 

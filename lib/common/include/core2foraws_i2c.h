@@ -29,17 +29,18 @@ extern "C" {
  * @brief I2C bus port identifiers.
  */
 typedef enum {
-    CORE2FORAWS_I2C_INTERNAL = 0,   /**< Internal bus (Port 0): AXP192, MPU6886, BM8563, FT6X36 */
-    CORE2FORAWS_I2C_EXTERNAL,       /**< External bus (Port 1): Expansion Port A */
+    CORE2FORAWS_I2C_INTERNAL = 0,   /**< Internal board bus: AXP192, MPU6886, BM8563, FT6336, ATECC608, and J3. */
+    CORE2FORAWS_I2C_EXTERNAL,       /**< Reopenable external Port A bus for one or more accessories. */
     CORE2FORAWS_I2C_PORT_MAX
 } core2foraws_i2c_port_t;
 
 /**
  * @brief Initialize an I2C master bus.
  *
- * Creates a new I2C master bus with the predefined pin configuration.
- * Safe to call multiple times — subsequent calls return ESP_OK without
- * re-initializing.
+ * Creates a board-defined bus and its static recursive mutex. Safe to call
+ * multiple times and concurrently. The internal bus is initialized during BSP
+ * startup and remains active for board lifetime. The external bus is opened on
+ * demand by the expansion-port API.
  *
  * @param[in] port The I2C bus port to initialize.
  * @return ESP_OK on success, or an error code.
@@ -49,15 +50,21 @@ esp_err_t core2foraws_i2c_init( core2foraws_i2c_port_t port );
 /**
  * @brief Deinitialize an I2C master bus.
  *
- * Removes all registered devices and deletes the bus.
+ * Removes all managed devices and deletes the external Port A bus. The internal
+ * board bus cannot be deinitialized because fixed BSP peripherals retain
+ * handles for board lifetime.
  *
  * @param[in] port The I2C bus port to deinitialize.
- * @return ESP_OK on success.
+ * @return ESP_OK on success or ESP_ERR_NOT_SUPPORTED for the internal bus.
  */
 esp_err_t core2foraws_i2c_deinit( core2foraws_i2c_port_t port );
 
 /**
- * @brief Get the master bus handle for a port.
+ * @brief Get the ESP-IDF master bus handle for a port.
+ *
+ * This is an integration escape hatch for drivers such as `esp_lcd_touch`.
+ * Any transaction issued through the raw handle must still be enclosed by
+ * core2foraws_i2c_lock()/core2foraws_i2c_unlock().
  *
  * @param[in]  port   The I2C bus port.
  * @param[out] handle Pointer to receive the bus handle.
@@ -67,7 +74,11 @@ esp_err_t core2foraws_i2c_get_bus_handle( core2foraws_i2c_port_t port,
                                           i2c_master_bus_handle_t *handle );
 
 /**
- * @brief Register an I2C device on a bus.
+ * @brief Register a managed I2C device on a bus.
+ *
+ * Multiple devices with different addresses and speeds are supported on each
+ * bus. Registering the same address and speed again returns the existing handle
+ * and increments its reference count.
  *
  * @param[in]  port         The I2C bus port.
  * @param[in]  dev_addr     7-bit device address.
@@ -81,7 +92,10 @@ esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
                                       i2c_master_dev_handle_t *dev_handle );
 
 /**
- * @brief Remove a previously registered I2C device.
+ * @brief Release a previously registered managed I2C device.
+ *
+ * The underlying ESP-IDF device is removed when its final reference is
+ * released.
  *
  * @param[in] dev_handle The device handle to remove.
  * @return ESP_OK on success.
@@ -91,7 +105,7 @@ esp_err_t core2foraws_i2c_device_remove( i2c_master_dev_handle_t dev_handle );
 /**
  * @brief Thread-safe read from an I2C device register.
  *
- * Acquires the bus mutex before performing the transaction.
+ * Acquires the recursive bus mutex before performing the transaction.
  * Handles CORE2FORAWS_I2C_NO_REG and CORE2FORAWS_I2C_REG_16 flags in the register address.
  *
  * @param[in]  port         The I2C bus port.
@@ -110,7 +124,7 @@ esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
 /**
  * @brief Thread-safe write to an I2C device register.
  *
- * Acquires the bus mutex before performing the transaction.
+ * Acquires the recursive bus mutex before performing the transaction.
  * Handles CORE2FORAWS_I2C_NO_REG and CORE2FORAWS_I2C_REG_16 flags in the register address.
  *
  * @param[in] port       The I2C bus port.
@@ -129,8 +143,10 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
 /**
  * @brief Acquire the I2C bus mutex.
  *
- * Use this for multi-operation sequences that must be atomic.
- * Must be paired with core2foraws_i2c_unlock().
+ * Use this for multi-operation sequences that must be atomic or when issuing a
+ * transaction through a raw bus handle. The lock is recursive: the owning task
+ * may call core2foraws_i2c_read()/write() while holding it. Every successful
+ * lock must be paired with core2foraws_i2c_unlock() on the same task.
  *
  * @param[in] port The I2C bus port.
  * @return ESP_OK on success, ESP_ERR_TIMEOUT if mutex could not be acquired.

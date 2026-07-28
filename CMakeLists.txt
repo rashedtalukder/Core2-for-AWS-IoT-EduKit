@@ -41,7 +41,7 @@ if( CONFIG_SOFTWARE_BSP_SUPPORT )
                                                 "${CORE2FORAWS_LIB}/power/core2foraws_power.c"
                                                 "${CORE2FORAWS_LIB}/power/axp192.c"
                                                 )
-    set( CORE2FORAWS_BSP_INCLUDE_DIRS           "${CORE2FORAWS_LIB}/common/include" 
+    set( CORE2FORAWS_BSP_INCLUDE_DIRS           "${CORE2FORAWS_LIB}/common/include"
                                                 "${CORE2FORAWS_LIB}/power/include"
                                                 )
     list( APPEND CORE2FORAWS_SRCS               ${CORE2FORAWS_BSP_SRCS} )
@@ -167,6 +167,7 @@ idf_component_register( SRCS                ${CORE2FORAWS_SRCS}
 # shared internal I2C bus instead of creating its own.
 if( CONFIG_SOFTWARE_CRYPTO_SUPPORT )
     target_link_options( ${COMPONENT_LIB} PUBLIC
+        -Wl,-u,__wrap_hal_i2c_init
         -Wl,--wrap=hal_i2c_init
         -Wl,--wrap=hal_i2c_post_init
         -Wl,--wrap=hal_i2c_send

@@ -414,6 +414,21 @@ esp_err_t core2foraws_expports_i2c_device_add( uint16_t device_address, uint32_t
 /* @[declare_core2foraws_expport_i2c_device_add] */
 
 /**
+ * @brief Releases a managed I2C device from external Port A.
+ *
+ * Repeated registrations of the same address and speed share one underlying
+ * ESP-IDF device and are reference counted.
+ *
+ * @param[in] dev_handle Handle returned by
+ * core2foraws_expports_i2c_device_add().
+ * @return ESP_OK, ESP_ERR_INVALID_ARG, or ESP_ERR_NOT_FOUND.
+ */
+/* @[declare_core2foraws_expport_i2c_device_remove] */
+esp_err_t core2foraws_expports_i2c_device_remove(
+	i2c_master_dev_handle_t dev_handle );
+/* @[declare_core2foraws_expport_i2c_device_remove] */
+
+/**
  * @brief Read from the I2C peripheral attatched to expansion port A.
  *
  * A thread-safe method to read from the I2C peripheral.
@@ -650,7 +665,7 @@ esp_err_t core2foraws_expports_i2c_close( void );
  * pin on the external ports with access to the ADC.
  * Read more about using [ADCs with the ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/adc.html).
  * 
- * @note Uses the etched eFuse VRef calibration.
+ * @note Returns the raw ADC conversion without calibration.
  *
  * **Example:**
  * 
@@ -706,7 +721,9 @@ esp_err_t core2foraws_expports_adc_read( int *raw_adc_value );
  * the external ports with access to the ADC.
  * Read more about using [ADCs with the ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/adc.html).
  * 
- * @note Uses the etched eFuse VRef calibration.
+ * @note Uses the available ESP-IDF ADC calibration scheme. If calibration is
+ * unavailable, this function returns ESP_ERR_NOT_SUPPORTED; use
+ * core2foraws_expports_adc_read() for the raw value.
  *
  * **Example:**
  * 
@@ -853,10 +870,12 @@ esp_err_t core2foraws_expports_dac_mv_write( const uint16_t dac_mvolts );
  *      uint8_t *data = heap_caps_malloc( UART_RX_BUF_SIZE, MALLOC_CAP_SPIRAM ); // Allocate space for message in external RAM
  *      while ( 1 )
  *      {
- *          esp_err_t err = core2foraws_expports_uart_read( data, &rxBytes );
+ *          esp_err_t err = core2foraws_expports_uart_read(
+ *              data, UART_RX_BUF_SIZE, &rxBytes );
  *          if ( err == ESP_OK )
  *          {
- *              ESP_LOGI( TAG, "\tRead %d bytes from UART. Received: '%s'", rxBytes, data );
+ *              ESP_LOGI( TAG, "\tRead %d bytes from UART. Received: '%.*s'",
+ *                        rxBytes, ( int )rxBytes, ( const char * )data );
  *          }
  *          vTaskDelay( pdMS_TO_TICKS( 500 ) ); // Read more frequently than transmit to ensure the messages are not erased from buffer.
  *      }
@@ -949,10 +968,12 @@ esp_err_t core2foraws_expports_uart_begin( uint32_t baud );
  *      uint8_t *data = heap_caps_malloc( UART_RX_BUF_SIZE, MALLOC_CAP_SPIRAM ); // Allocate space for message in external RAM
  *      while ( 1 )
  *      {
- *          esp_err_t err = core2foraws_expports_uart_read( data, &rxBytes );
+ *          esp_err_t err = core2foraws_expports_uart_read(
+ *              data, UART_RX_BUF_SIZE, &rxBytes );
  *          if ( err == ESP_OK )
  *          {
- *              ESP_LOGI( TAG, "\tRead %d bytes from UART. Received: '%s'", rxBytes, data );
+ *              ESP_LOGI( TAG, "\tRead %d bytes from UART. Received: '%.*s'",
+ *                        rxBytes, ( int )rxBytes, ( const char * )data );
  *          }
  *          vTaskDelay( pdMS_TO_TICKS( 500 ) ); // Read more frequently than transmit to ensure the messages are not erased from buffer.
  *      }
@@ -1050,10 +1071,12 @@ esp_err_t core2foraws_expports_uart_write( const char *message, size_t length, s
  *      uint8_t *data = heap_caps_malloc( UART_RX_BUF_SIZE, MALLOC_CAP_SPIRAM ); // Allocate space for message in external RAM
  *      while ( 1 )
  *      {
- *          esp_err_t err = core2foraws_expports_uart_read( data, &rxBytes );
+ *          esp_err_t err = core2foraws_expports_uart_read(
+ *              data, UART_RX_BUF_SIZE, &rxBytes );
  *          if ( err == ESP_OK )
  *          {
- *              ESP_LOGI( TAG, "\tRead %d bytes from UART. Received: '%s'", rxBytes, data );
+ *              ESP_LOGI( TAG, "\tRead %d bytes from UART. Received: '%.*s'",
+ *                        rxBytes, ( int )rxBytes, ( const char * )data );
  *          }
  *          vTaskDelay( pdMS_TO_TICKS( 500 ) ); // Read more frequently than transmit to ensure the messages are not erased from buffer.
  *      }
@@ -1075,6 +1098,9 @@ esp_err_t core2foraws_expports_uart_write( const char *message, size_t length, s
  *
  * @param[out] message_buffer A pointer to the buffer read from 
  * UART2.
+ * @param[in] buffer_capacity Number of writable bytes in
+ * @p message_buffer. At most this many bytes are removed from the UART ring
+ * buffer.
  * @param[out] was_read_length Pointer to the number of bytes read 
  * from @ref PORT_C_UART_RX_PIN (GPIO 13).
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/system/esp_err.html#macros).
@@ -1082,7 +1108,9 @@ esp_err_t core2foraws_expports_uart_write( const char *message, size_t length, s
  *  - ESP_FAIL	: Failed to write
  */
 /* @[declare_core2foraws_expport_uart_read] */
-esp_err_t core2foraws_expports_uart_read( uint8_t *message_buffer, size_t *was_read_length );
+esp_err_t core2foraws_expports_uart_read( uint8_t *message_buffer,
+										  size_t buffer_capacity,
+										  size_t *was_read_length );
 /* @[declare_core2foraws_expport_uart_read] */
 
 /**
@@ -1206,10 +1234,12 @@ esp_err_t core2foraws_expports_uart_send_finished( void );
  *      uint8_t *data = heap_caps_malloc( UART_RX_BUF_SIZE, MALLOC_CAP_SPIRAM ); // Allocate space for message in external RAM
  *      while ( 1 )
  *      {
- *          esp_err_t err = core2foraws_expports_uart_read( data, &rxBytes );
+ *          esp_err_t err = core2foraws_expports_uart_read(
+ *              data, UART_RX_BUF_SIZE, &rxBytes );
  *          if ( err == ESP_OK )
  *          {
- *              ESP_LOGI( TAG, "\tRead %d bytes from UART. Received: '%s'", rxBytes, data );
+ *              ESP_LOGI( TAG, "\tRead %d bytes from UART. Received: '%.*s'",
+ *                        rxBytes, ( int )rxBytes, ( const char * )data );
  *          }
  *          vTaskDelay( pdMS_TO_TICKS( 500 ) ); // Read more frequently than transmit to ensure the messages are not erased from buffer.
  *      }

@@ -27,6 +27,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_log.h>
@@ -84,12 +85,52 @@ struct
 static adc_oneshot_unit_handle_t _adc_handle = NULL;
 static adc_cali_handle_t _adc_cali_handle = NULL;
 static dac_oneshot_handle_t _dac_handle = NULL;
+static StaticSemaphore_t _expports_mutex_storage;
+static SemaphoreHandle_t _expports_mutex = NULL;
+static atomic_uchar _expports_mutex_state;
 
 static const char *_TAG = "CORE2FORAWS_EXPPORT";
 
 static uint8_t _core2foraws_expports_get_index( gpio_num_t pin );
 static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode );
 static esp_err_t _core2foraws_expports_pin_handler( gpio_num_t pin, pin_mode_t mode );
+
+static esp_err_t _expports_lock( void )
+{
+    if( atomic_load( &_expports_mutex_state ) != 2 )
+    {
+        unsigned char expected = 0;
+        if( atomic_compare_exchange_strong( &_expports_mutex_state, &expected,
+                                            1 ) )
+        {
+            _expports_mutex = xSemaphoreCreateRecursiveMutexStatic(
+                &_expports_mutex_storage );
+            atomic_store( &_expports_mutex_state,
+                          _expports_mutex != NULL ? 2 : 0 );
+        }
+        else
+        {
+            while( atomic_load( &_expports_mutex_state ) == 1 )
+            {
+                taskYIELD();
+            }
+        }
+    }
+
+    if( _expports_mutex == NULL )
+    {
+        return ESP_ERR_NO_MEM;
+    }
+    return xSemaphoreTakeRecursive( _expports_mutex, pdMS_TO_TICKS( 1000 ) ) ==
+                   pdTRUE
+               ? ESP_OK
+               : ESP_ERR_TIMEOUT;
+}
+
+static void _expports_unlock( void )
+{
+    xSemaphoreGiveRecursive( _expports_mutex );
+}
 
 static uint8_t _core2foraws_expports_get_index( gpio_num_t pin )
 {
@@ -170,6 +211,8 @@ static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode
         if ( err != ESP_OK )
         {
             ESP_LOGE( _TAG, "\tError configuring ADC channel on pin %d. Error code: 0x%x.", pin, err );
+            adc_oneshot_del_unit( _adc_handle );
+            _adc_handle = NULL;
             return err;
         }
 
@@ -193,6 +236,7 @@ static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode
         {
             ESP_LOGW( _TAG, "\tADC calibration scheme not available. Raw values only." );
             _adc_cali_handle = NULL;
+            err = ESP_OK;
         }
     }
     else if ( mode == DAC )
@@ -221,6 +265,8 @@ static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode
             if ( err != ESP_OK )
             {
                 ESP_LOGE( _TAG, "\tFailed to set pins %d, %d, to UART%d. Error code: 0x%x.", PORT_C_UART_RX_PIN, PORT_C_UART_TX_PIN, PORT_C_UART_NUM, err );
+                uart_driver_delete( PORT_C_UART_NUM );
+                return err;
             }
         }
         else
@@ -346,75 +392,138 @@ static esp_err_t _core2foraws_expports_pin_handler( gpio_num_t pin, pin_mode_t m
 
 esp_err_t core2foraws_expports_digital_read( gpio_num_t pin, bool *level )
 {
-    esp_err_t err = _core2foraws_expports_pin_handler( pin, INPUT );
+    if( level == NULL ) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = _core2foraws_expports_pin_handler( pin, INPUT );
     if ( err == ESP_OK )
     {
         *level = gpio_get_level( pin );
     }
 
+    _expports_unlock();
     return err;
 }
 
 esp_err_t core2foraws_expports_digital_write( gpio_num_t pin, const bool level )
 {
-    esp_err_t err = _core2foraws_expports_pin_handler( pin, OUTPUT );
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = _core2foraws_expports_pin_handler( pin, OUTPUT );
     if ( err == ESP_OK )
     {
         err = gpio_set_level(pin, level);
     }
     
+    _expports_unlock();
     return err;
 }
 
 esp_err_t core2foraws_expports_pin_reset( gpio_num_t pin )
 {
-    return _core2foraws_expports_pin_handler( pin, NONE );
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = _core2foraws_expports_pin_handler( pin, NONE );
+    _expports_unlock();
+    return err;
 }
 
 esp_err_t core2foraws_expports_i2c_begin( void )
 {
-    esp_err_t err = _core2foraws_expports_pin_handler( PORT_A_SDA_PIN, I2C );
-    err |= _core2foraws_expports_pin_handler( PORT_A_SCL_PIN, I2C );
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
 
+    err = _core2foraws_expports_pin_handler( PORT_A_SDA_PIN, I2C );
+    if( err == ESP_OK )
+    {
+        err = _core2foraws_expports_pin_handler( PORT_A_SCL_PIN, I2C );
+    }
+    if( err != ESP_OK )
+    {
+        _core2foraws_expports_pin_handler( PORT_A_SDA_PIN, NONE );
+        core2foraws_i2c_deinit( COMMON_I2C_EXTERNAL );
+    }
+
+    _expports_unlock();
     return err;
 }
 
 esp_err_t core2foraws_expports_i2c_device_add( uint16_t device_address, uint32_t scl_speed_hz, i2c_master_dev_handle_t *dev_handle )
 {
-    return core2foraws_i2c_device_add( COMMON_I2C_EXTERNAL, device_address, scl_speed_hz, dev_handle );
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = core2foraws_i2c_device_add( COMMON_I2C_EXTERNAL, device_address,
+                                      scl_speed_hz, dev_handle );
+    _expports_unlock();
+    return err;
+}
+
+esp_err_t core2foraws_expports_i2c_device_remove(
+    i2c_master_dev_handle_t dev_handle )
+{
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = core2foraws_i2c_device_remove( dev_handle );
+    _expports_unlock();
+    return err;
 }
 
 esp_err_t core2foraws_expports_i2c_read( i2c_master_dev_handle_t dev_handle, uint32_t register_address, uint8_t *data, uint16_t length )
 {
-    return core2foraws_i2c_read( COMMON_I2C_EXTERNAL, dev_handle, register_address, data, length );
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = core2foraws_i2c_read( COMMON_I2C_EXTERNAL, dev_handle,
+                                register_address, data, length );
+    _expports_unlock();
+    return err;
 }
 
 esp_err_t core2foraws_expports_i2c_write( i2c_master_dev_handle_t dev_handle, uint32_t register_address, const uint8_t *data, uint16_t length )
 {
-    return core2foraws_i2c_write( COMMON_I2C_EXTERNAL, dev_handle, register_address, data, length );
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = core2foraws_i2c_write( COMMON_I2C_EXTERNAL, dev_handle,
+                                 register_address, data, length );
+    _expports_unlock();
+    return err;
 }
 
 esp_err_t core2foraws_expports_i2c_close( void )
 {
-    core2foraws_expports_pin_reset( PORT_A_SDA_PIN );
-    core2foraws_expports_pin_reset( PORT_A_SCL_PIN );
-    return core2foraws_i2c_deinit( COMMON_I2C_EXTERNAL );
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+
+    err = core2foraws_i2c_deinit( COMMON_I2C_EXTERNAL );
+    esp_err_t reset_err =
+        _core2foraws_expports_pin_handler( PORT_A_SDA_PIN, NONE );
+    if( err == ESP_OK ) err = reset_err;
+    reset_err = _core2foraws_expports_pin_handler( PORT_A_SCL_PIN, NONE );
+    if( err == ESP_OK ) err = reset_err;
+
+    _expports_unlock();
+    return err;
 }
 
 esp_err_t core2foraws_expports_adc_read( int *raw_adc_value )
 {
-    esp_err_t err = _core2foraws_expports_pin_handler( PORT_B_ADC_PIN, ADC );
+    if( raw_adc_value == NULL ) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = _core2foraws_expports_pin_handler( PORT_B_ADC_PIN, ADC );
     if ( err == ESP_OK )
     {
         err = adc_oneshot_read( _adc_handle, ADC_CHANNEL, raw_adc_value );
     }
     
+    _expports_unlock();
     return err;
 }
 
 esp_err_t core2foraws_expports_adc_mv_read( uint32_t *adc_mvolts )
 {
-    esp_err_t err = ESP_FAIL;
+    if( adc_mvolts == NULL ) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
     
     err = _core2foraws_expports_pin_handler( PORT_B_ADC_PIN, ADC );
     if ( err == ESP_OK )
@@ -427,18 +536,20 @@ esp_err_t core2foraws_expports_adc_mv_read( uint32_t *adc_mvolts )
             err = adc_cali_raw_to_voltage( _adc_cali_handle, raw, &voltage );
             *adc_mvolts = ( uint32_t ) voltage;
         }
-        else
+        else if( err == ESP_OK )
         {
-            *adc_mvolts = ( uint32_t ) raw;
+            err = ESP_ERR_NOT_SUPPORTED;
         }
     }
     
+    _expports_unlock();
     return err;
 }
 
 esp_err_t core2foraws_expports_dac_mv_write( const uint16_t dac_mvolts )
 {
-    esp_err_t err = ESP_FAIL;
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
 
     err = _core2foraws_expports_pin_handler( PORT_B_DAC_PIN, DAC );
     if ( err == ESP_OK )
@@ -457,20 +568,28 @@ esp_err_t core2foraws_expports_dac_mv_write( const uint16_t dac_mvolts )
         err = dac_oneshot_output_voltage(_dac_handle, duty);
     }
     
+    _expports_unlock();
     return err;
 }
 
 esp_err_t core2foraws_expports_uart_begin( uint32_t baud )
 {
-    esp_err_t err = _core2foraws_expports_pin_handler( PORT_C_UART_RX_PIN, UART );
+    if( baud == 0 ) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+
+    err = _core2foraws_expports_pin_handler( PORT_C_UART_RX_PIN, UART );
     if ( err != ESP_OK )
     {
+        _expports_unlock();
         return err;
     }
 
     err = _core2foraws_expports_pin_handler( PORT_C_UART_TX_PIN, UART );
     if ( err != ESP_OK )
     {
+        _core2foraws_expports_pin_handler( PORT_C_UART_RX_PIN, NONE );
+        _expports_unlock();
         return err;
     }
 
@@ -488,29 +607,46 @@ esp_err_t core2foraws_expports_uart_begin( uint32_t baud )
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "\tFailed to configure UART%d with the provided configuration.", PORT_C_UART_NUM );
+        _core2foraws_expports_pin_handler( PORT_C_UART_RX_PIN, NONE );
+        _core2foraws_expports_pin_handler( PORT_C_UART_TX_PIN, NONE );
     }    
 
+    _expports_unlock();
     return err;
 }
 
-esp_err_t core2foraws_expports_uart_read( uint8_t *message_buffer, size_t *was_read_length )
+esp_err_t core2foraws_expports_uart_read( uint8_t *message_buffer,
+                                          size_t buffer_capacity,
+                                          size_t *was_read_length )
 {
-    esp_err_t err = ESP_FAIL;
+    if( message_buffer == NULL || buffer_capacity == 0 ||
+        was_read_length == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
     int rxBytes = 0;
-    int cached_buffer_length = 0;
+    size_t cached_buffer_length = 0;
 
     *was_read_length = 0;
 
-    err = uart_get_buffered_data_len( PORT_C_UART_NUM, ( size_t* )&cached_buffer_length );
+    err = uart_get_buffered_data_len( PORT_C_UART_NUM, &cached_buffer_length );
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "\tFailed to get UART ring buffer length. Check if pins were set to UART and has been configured." );
+        _expports_unlock();
         return err;
     }
 
     if ( cached_buffer_length )
     {
-        rxBytes = uart_read_bytes(PORT_C_UART_NUM, message_buffer, (size_t)cached_buffer_length, pdMS_TO_TICKS(1000));
+        size_t to_read = cached_buffer_length < buffer_capacity
+                     ? cached_buffer_length
+                     : buffer_capacity;
+        rxBytes = uart_read_bytes( PORT_C_UART_NUM, message_buffer, to_read,
+                       pdMS_TO_TICKS( 1000 ) );
         if ( rxBytes == -1 )
         {
             err = ESP_FAIL;
@@ -522,12 +658,22 @@ esp_err_t core2foraws_expports_uart_read( uint8_t *message_buffer, size_t *was_r
             *was_read_length = ( size_t ) rxBytes;
         }
     }
+    else
+    {
+        err = ESP_OK;
+    }
+    _expports_unlock();
     return err;
 }
 
 esp_err_t core2foraws_expports_uart_write( const char *message, size_t length, size_t *was_written_length )
 {
-    esp_err_t err = ESP_FAIL;
+    if( message == NULL || length == 0 || was_written_length == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
     int txBytes = 0;
 
     txBytes = uart_write_bytes( PORT_C_UART_NUM, message, length );
@@ -542,16 +688,26 @@ esp_err_t core2foraws_expports_uart_write( const char *message, size_t length, s
         *was_written_length = ( size_t ) txBytes;
     }
 
+    _expports_unlock();
     return err;
 }
 
 esp_err_t core2foraws_expports_uart_send_finished( void )
 {
-    return uart_wait_tx_done( PORT_C_UART_NUM, pdMS_TO_TICKS( UART_TX_SEND_WAIT ) );
+    esp_err_t err = _expports_lock();
+    if( err != ESP_OK ) return err;
+    err = uart_wait_tx_done( PORT_C_UART_NUM,
+                             pdMS_TO_TICKS( UART_TX_SEND_WAIT ) );
+    _expports_unlock();
+    return err;
 }
 
 esp_err_t core2foraws_expports_uart_read_flush( bool *was_flushed )
 {
+    if( was_flushed == NULL ) return ESP_ERR_INVALID_ARG;
+    *was_flushed = false;
+    esp_err_t lock_err = _expports_lock();
+    if( lock_err != ESP_OK ) return lock_err;
     esp_err_t err = core2foraws_expports_uart_send_finished();
     if ( err == ESP_OK )
     {
@@ -561,5 +717,6 @@ esp_err_t core2foraws_expports_uart_read_flush( bool *was_flushed )
             *was_flushed = true;
         }
     }
+    _expports_unlock();
     return err;
 }

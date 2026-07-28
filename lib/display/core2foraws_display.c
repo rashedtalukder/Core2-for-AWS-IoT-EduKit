@@ -61,7 +61,7 @@
 #define LCD_PIXEL_CLK_HZ    ( 40 * 1000 * 1000 )
 #define LCD_CMD_BITS        8
 #define LCD_PARAM_BITS      8
-#define LCD_DRAW_BUF_LINES  25
+#define LCD_DRAW_BUF_LINES  40
 
 /* FT6336U touch controller on internal I2C bus */
 #define TOUCH_INT_GPIO      GPIO_NUM_39
@@ -73,29 +73,149 @@ lv_display_t *core2foraws_display_ptr = NULL;
 
 /* Private handles */
 static esp_lcd_panel_io_handle_t _io_handle = NULL;
+static esp_lcd_panel_io_handle_t _touch_io_handle = NULL;
 static esp_lcd_panel_handle_t    _panel_handle = NULL;
 static esp_lcd_touch_handle_t    _touch_handle = NULL;
 static lv_indev_t               *_touch_indev = NULL;
+static bool                      _lvgl_initialized = false;
 
-/**
- * @brief Initialize the SPI bus shared between LCD and SD card.
- *
- * The bus is configured once; both esp_lcd and the SD card driver
- * attach their own devices to it afterwards.
- */
-static esp_err_t _init_spi_bus( void )
+static void _display_flush_start( lv_event_t *event )
 {
-    const spi_bus_config_t bus_cfg = {
-        .mosi_io_num   = LCD_SPI_MOSI,
-        .miso_io_num   = LCD_SPI_MISO,
-        .sclk_io_num   = LCD_SPI_SCLK,
-        .quadwp_io_num = GPIO_NUM_NC,
-        .quadhd_io_num = GPIO_NUM_NC,
-        .max_transfer_sz = LCD_H_RES * LCD_DRAW_BUF_LINES * sizeof( uint16_t ),
-    };
-
-    return spi_bus_initialize( LCD_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO );
+    (void)event;
+    xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
 }
+
+static bool _display_flush_done( esp_lcd_panel_io_handle_t panel_io,
+                                 esp_lcd_panel_io_event_data_t *event_data,
+                                 void *user_ctx )
+{
+    (void)panel_io;
+    (void)event_data;
+
+    BaseType_t task_woken = pdFALSE;
+    xSemaphoreGiveFromISR( core2foraws_common_spi_semaphore, &task_woken );
+    lvgl_port_flush_ready( ( lv_display_t * )user_ctx );
+    return task_woken == pdTRUE;
+}
+
+static esp_err_t _display_touch_read( esp_lcd_touch_point_data_t *points,
+                                      uint8_t *point_count,
+                                      uint8_t max_points )
+{
+    if( points == NULL || point_count == NULL || max_points == 0 )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if( _touch_handle == NULL )
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t err = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
+    err = esp_lcd_touch_read_data( _touch_handle );
+    if( err == ESP_OK )
+    {
+        err = esp_lcd_touch_get_data( _touch_handle, points, point_count,
+                                      max_points );
+    }
+
+    esp_err_t unlock_err = core2foraws_i2c_unlock( COMMON_I2C_INTERNAL );
+    return err != ESP_OK ? err : unlock_err;
+}
+
+static void _lvgl_touch_read( lv_indev_t *indev, lv_indev_data_t *data )
+{
+    (void)indev;
+    esp_lcd_touch_point_data_t point;
+    uint8_t point_count = 0;
+
+    data->state = LV_INDEV_STATE_RELEASED;
+    if( _display_touch_read( &point, &point_count, 1 ) == ESP_OK &&
+        point_count > 0 )
+    {
+        data->point.x = point.x;
+        data->point.y = point.y;
+        data->state = LV_INDEV_STATE_PRESSED;
+    }
+}
+
+static void _display_cleanup( void )
+{
+    bool spi_locked = false;
+    if( _lvgl_initialized )
+    {
+        lvgl_port_stop();
+    }
+
+    /* LV_EVENT_FLUSH_START takes this semaphore and the SPI completion ISR
+     * gives it. After stopping LVGL refresh, taking it waits for any active
+     * callback to finish before its display context is freed. */
+    if( core2foraws_common_spi_semaphore != NULL &&
+        xSemaphoreTake( core2foraws_common_spi_semaphore,
+                        portMAX_DELAY ) == pdTRUE )
+    {
+        spi_locked = true;
+    }
+
+    if( _touch_indev != NULL )
+    {
+        lvgl_port_lock( 0 );
+        lv_indev_delete( _touch_indev );
+        lvgl_port_unlock();
+        _touch_indev = NULL;
+    }
+
+    if( core2foraws_display_ptr != NULL )
+    {
+        lvgl_port_remove_disp( core2foraws_display_ptr );
+        core2foraws_display_ptr = NULL;
+    }
+
+    if( _lvgl_initialized )
+    {
+        lvgl_port_deinit();
+        _lvgl_initialized = false;
+    }
+
+    if( _touch_handle != NULL )
+    {
+        esp_lcd_touch_del( _touch_handle );
+        _touch_handle = NULL;
+    }
+    if( _touch_io_handle != NULL )
+    {
+        esp_lcd_panel_io_del( _touch_io_handle );
+        _touch_io_handle = NULL;
+    }
+    if( _panel_handle != NULL )
+    {
+        esp_lcd_panel_del( _panel_handle );
+        _panel_handle = NULL;
+    }
+    if( _io_handle != NULL )
+    {
+        esp_lcd_panel_io_del( _io_handle );
+        _io_handle = NULL;
+    }
+
+    if( spi_locked )
+    {
+        xSemaphoreGive( core2foraws_common_spi_semaphore );
+    }
+}
+
+esp_err_t core2foraws_display_touch_data_get(
+    esp_lcd_touch_point_data_t *points, uint8_t *point_count,
+    uint8_t max_points )
+{
+    return _display_touch_read( points, point_count, max_points );
+}
+
 
 /**
  * @brief Create the esp_lcd panel IO and panel driver for the ILI9341.
@@ -144,7 +264,6 @@ static esp_err_t _init_lcd_panel( void )
  */
 static esp_err_t _init_touch( void )
 {
-    esp_lcd_panel_io_handle_t touch_io_handle = NULL;
     esp_lcd_panel_io_i2c_config_t io_config =
         ESP_LCD_TOUCH_IO_I2C_FT5x06_CONFIG();
     io_config.scl_speed_hz = 400000;
@@ -157,7 +276,7 @@ static esp_err_t _init_touch( void )
     }
 
     err = esp_lcd_new_panel_io_i2c_v2(
-        i2c_bus, &io_config, &touch_io_handle );
+        i2c_bus, &io_config, &_touch_io_handle );
     if( err != ESP_OK )
     {
         return err;
@@ -179,13 +298,25 @@ static esp_err_t _init_touch( void )
         },
     };
 
-    return esp_lcd_touch_new_i2c_ft5x06( touch_io_handle, &tp_cfg,
+    return esp_lcd_touch_new_i2c_ft5x06( _touch_io_handle, &tp_cfg,
                                          &_touch_handle );
 }
 
-esp_lcd_touch_handle_t core2foraws_display_get_touch_handle( void )
+esp_err_t core2foraws_display_get_touch_handle(
+    esp_lcd_touch_handle_t *touch_handle )
 {
-    return _touch_handle;
+    if( touch_handle == NULL )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if( _touch_handle == NULL )
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    *touch_handle = _touch_handle;
+    return ESP_OK;
 }
 
 esp_err_t core2foraws_display_init( void )
@@ -198,41 +329,32 @@ esp_err_t core2foraws_display_init( void )
         return ESP_OK;
     }
 
-    if( core2foraws_common_spi_semaphore == NULL )
-    {
-        core2foraws_common_spi_semaphore = xSemaphoreCreateMutex();
-        if( core2foraws_common_spi_semaphore == NULL )
-        {
-            ESP_LOGE( _TAG, "Failed to create shared SPI semaphore" );
-            return ESP_ERR_NO_MEM;
-        }
-    }
-
-    /* ── 1. SPI bus (shared with SD card) ── */
-    esp_err_t err = _init_spi_bus();
+    esp_err_t err = core2foraws_common_spi_bus_init();
     if( err != ESP_OK )
     {
-        ESP_LOGE( _TAG, "SPI bus init failed: 0x%x", err );
+        ESP_LOGE( _TAG, "Failed to create shared SPI semaphore: 0x%x", err );
         return err;
     }
 
-    /* ── 2. LCD panel via esp_lcd ── */
+    /* ── 1. LCD panel via the shared SPI bus ── */
     err = _init_lcd_panel();
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "LCD panel init failed: 0x%x", err );
+        _display_cleanup();
         return err;
     }
 
-    /* ── 3. Touch via esp_lcd_touch ── */
+    /* ── 2. Touch via esp_lcd_touch ── */
     err = _init_touch();
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Touch init failed: 0x%x", err );
+        _display_cleanup();
         return err;
     }
 
-    /* ── 4. LVGL port ── */
+    /* ── 3. LVGL port ── */
     lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     /* Raise the LVGL task stack from the default 7168 bytes to avoid a
      * stack overflow during canvas/image rendering. */
@@ -246,10 +368,12 @@ esp_err_t core2foraws_display_init( void )
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "LVGL port init failed: 0x%x", err );
+        _display_cleanup();
         return err;
     }
+    _lvgl_initialized = true;
 
-    /* ── 5. Add display to LVGL port ── */
+    /* ── 4. Add display to LVGL port ── */
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle     = _io_handle,
         .panel_handle  = _panel_handle,
@@ -278,21 +402,49 @@ esp_err_t core2foraws_display_init( void )
     if( core2foraws_display_ptr == NULL )
     {
         ESP_LOGE( _TAG, "Failed to add display to LVGL port" );
+        _display_cleanup();
         return ESP_FAIL;
     }
 
-    /* ── 6. Add touch input to LVGL port ── */
-    const lvgl_port_touch_cfg_t touch_cfg = {
-        .disp   = core2foraws_display_ptr,
-        .handle = _touch_handle,
+    const esp_lcd_panel_io_callbacks_t io_callbacks = {
+        .on_color_trans_done = _display_flush_done,
     };
+    err = esp_lcd_panel_io_register_event_callbacks(
+        _io_handle, &io_callbacks, core2foraws_display_ptr );
+    if( err != ESP_OK )
+    {
+        ESP_LOGE( _TAG, "Failed to register display flush callback: 0x%x",
+                  err );
+        _display_cleanup();
+        return err;
+    }
 
-    _touch_indev = lvgl_port_add_touch( &touch_cfg );
+    lv_display_add_event_cb( core2foraws_display_ptr, _display_flush_start,
+                             LV_EVENT_FLUSH_START, NULL );
+
+    /* ── 5. Add BSP-owned touch input to LVGL ── */
+    lvgl_port_lock( 0 );
+    _touch_indev = lv_indev_create();
+    if( _touch_indev != NULL )
+    {
+        lv_indev_set_type( _touch_indev, LV_INDEV_TYPE_POINTER );
+        lv_indev_set_display( _touch_indev, core2foraws_display_ptr );
+        lv_indev_set_read_cb( _touch_indev, _lvgl_touch_read );
+    }
+    lvgl_port_unlock();
     if( _touch_indev == NULL )
     {
-        ESP_LOGW( _TAG, "Failed to add touch input" );
+        ESP_LOGE( _TAG, "Failed to add touch input" );
+        _display_cleanup();
+        return ESP_ERR_NO_MEM;
     }
 
     ESP_LOGI( _TAG, "\tDisplay initialized" );
+    return ESP_OK;
+}
+
+esp_err_t core2foraws_display_deinit( void )
+{
+    _display_cleanup();
     return ESP_OK;
 }
