@@ -1,11 +1,11 @@
-# BSP Steering Notes for M5Stack Core2 for AWS + M5Bus Add-on Board
+# BSP Steering Notes for M5Stack Core2 for AWS + M5GO Bottom for AWS
 
 ## Scope and modeling rule
 
 * Treat this platform as **two coupled boards**:
 
   1. **Core2 main board**
-  2. **M5Bus add-on board**
+  2. **M5GO Bottom for AWS add-on board**
 * The add-on board is **not independent**. It inherits power, buses, and GPIO through the **M5Bus connector**.
 * BSP generation should model:
 
@@ -145,7 +145,7 @@ BSP must:
 
 ## 10. ATECC608 is also on the internal I2C bus
 
-The add-on schematic shows the **ATECC608** secure element (address 0x35) on:
+The **ATECC608** secure element uses address `0x35` and is connected to:
 
 * `I2C_SCL`
 * `I2C_SDA`
@@ -158,7 +158,9 @@ BSP must:
 
 * place secure element on the **internal I2C bus**
 * not fabricate an external-I2C connection for it
-* treat the part as ATECC608
+* use the board-fixed 7-bit address `0x35` at 100 kHz rather than inheriting a
+  consuming project's generic cryptoauthlib address
+* use `ATECC608` as the canonical component name in BSP code and documentation
 
 ## 11. The add-on board also exposes that same internal I2C bus to a socket
 

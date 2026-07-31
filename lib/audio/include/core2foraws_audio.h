@@ -72,6 +72,8 @@ extern "C" {
  * to enable and use both at the same time will return an error.
  * Call this once with `true` before writing audio, then call it again
  * with `false` when you are done.
+ * Disabling holds the NS4168 CTRL line low for more than the datasheet's
+ * 100 us shutdown-entry requirement before releasing the I2S channel.
  *
  * @param[in] state Desired state of the speaker. 1 to enable, 0 to 
  * disable.

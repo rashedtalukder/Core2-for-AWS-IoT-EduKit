@@ -192,15 +192,16 @@ static esp_err_t _display_touch_read( esp_lcd_touch_point_data_t *points,
     {
         return ESP_ERR_INVALID_ARG;
     }
-    if( _touch_handle == NULL )
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
     esp_err_t err = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
     if( err != ESP_OK )
     {
         return err;
+    }
+
+    if( _touch_handle == NULL )
+    {
+        esp_err_t unlock_err = core2foraws_i2c_unlock( COMMON_I2C_INTERNAL );
+        return unlock_err != ESP_OK ? unlock_err : ESP_ERR_INVALID_STATE;
     }
 
     err = esp_lcd_touch_read_data( _touch_handle );
@@ -230,8 +231,10 @@ static void _lvgl_touch_read( lv_indev_t *indev, lv_indev_data_t *data )
     }
 }
 
-static void _display_cleanup( void )
+static esp_err_t _display_cleanup( void )
 {
+    esp_err_t cleanup_err = ESP_OK;
+
     if( _lvgl_initialized )
     {
         lvgl_port_stop();
@@ -270,15 +273,48 @@ static void _display_cleanup( void )
         _lvgl_initialized = false;
     }
 
-    if( _touch_handle != NULL )
+    if( _touch_handle != NULL || _touch_io_handle != NULL )
     {
-        esp_lcd_touch_del( _touch_handle );
-        _touch_handle = NULL;
-    }
-    if( _touch_io_handle != NULL )
-    {
-        esp_lcd_panel_io_del( _touch_io_handle );
-        _touch_io_handle = NULL;
+        esp_err_t lock_err = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+        if( lock_err != ESP_OK )
+        {
+            ESP_LOGE( _TAG, "Failed to lock internal I2C for touch teardown: 0x%x",
+                      lock_err );
+            cleanup_err = lock_err;
+        }
+        else
+        {
+            if( _touch_handle != NULL )
+            {
+                esp_err_t err = esp_lcd_touch_del( _touch_handle );
+                if( err == ESP_OK )
+                {
+                    _touch_handle = NULL;
+                }
+                else if( cleanup_err == ESP_OK )
+                {
+                    cleanup_err = err;
+                }
+            }
+            if( _touch_handle == NULL && _touch_io_handle != NULL )
+            {
+                esp_err_t err = esp_lcd_panel_io_del( _touch_io_handle );
+                if( err == ESP_OK )
+                {
+                    _touch_io_handle = NULL;
+                }
+                else if( cleanup_err == ESP_OK )
+                {
+                    cleanup_err = err;
+                }
+            }
+
+            esp_err_t unlock_err = core2foraws_i2c_unlock( COMMON_I2C_INTERNAL );
+            if( cleanup_err == ESP_OK )
+            {
+                cleanup_err = unlock_err;
+            }
+        }
     }
     if( _panel_handle != NULL )
     {
@@ -290,6 +326,8 @@ static void _display_cleanup( void )
         esp_lcd_panel_io_del( _io_handle );
         _io_handle = NULL;
     }
+
+    return cleanup_err;
 }
 
 esp_err_t core2foraws_display_touch_data_get(
@@ -424,7 +462,7 @@ esp_err_t core2foraws_display_init( void )
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "LCD panel init failed: 0x%x", err );
-        _display_cleanup();
+        (void)_display_cleanup();
         return err;
     }
 
@@ -433,7 +471,7 @@ esp_err_t core2foraws_display_init( void )
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Touch init failed: 0x%x", err );
-        _display_cleanup();
+        (void)_display_cleanup();
         return err;
     }
 
@@ -451,7 +489,7 @@ esp_err_t core2foraws_display_init( void )
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "LVGL port init failed: 0x%x", err );
-        _display_cleanup();
+        (void)_display_cleanup();
         return err;
     }
     _lvgl_initialized = true;
@@ -460,7 +498,7 @@ esp_err_t core2foraws_display_init( void )
     err = _display_draw_buffer_check();
     if( err != ESP_OK )
     {
-        _display_cleanup();
+        (void)_display_cleanup();
         return err;
     }
 
@@ -496,7 +534,7 @@ esp_err_t core2foraws_display_init( void )
                   "buffers could not be allocated; lower "
                   "CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES (currently %d).",
                   ( unsigned int ) LCD_DRAW_BUF_BYTES, LCD_DRAW_BUF_LINES );
-        _display_cleanup();
+        (void)_display_cleanup();
         return ESP_ERR_NO_MEM;
     }
 
@@ -509,7 +547,7 @@ esp_err_t core2foraws_display_init( void )
     {
         ESP_LOGE( _TAG, "Failed to register display flush callback: 0x%x",
                   err );
-        _display_cleanup();
+        (void)_display_cleanup();
         return err;
     }
 
@@ -529,7 +567,7 @@ esp_err_t core2foraws_display_init( void )
     if( _touch_indev == NULL )
     {
         ESP_LOGE( _TAG, "Failed to add touch input" );
-        _display_cleanup();
+        (void)_display_cleanup();
         return ESP_ERR_NO_MEM;
     }
 
@@ -539,6 +577,5 @@ esp_err_t core2foraws_display_init( void )
 
 esp_err_t core2foraws_display_deinit( void )
 {
-    _display_cleanup();
-    return ESP_OK;
+    return _display_cleanup();
 }

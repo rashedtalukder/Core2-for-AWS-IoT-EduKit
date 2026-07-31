@@ -2,7 +2,7 @@
 ## Board Architecture
 
 ```
-System = Core2 Main Board + M5Bus Add-on Board
+System = Core2 Main Board + M5GO Bottom for AWS via M5Bus
 MCU = ESP32-D0WDQ6-V3
 PMU = AXP192
 ```

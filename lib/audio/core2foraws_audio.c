@@ -31,6 +31,7 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include <esp_log.h>
+#include <esp_rom_sys.h>
 #include <driver/i2s_std.h>
 #include <driver/i2s_pdm.h>
 #include <driver/gpio.h>
@@ -43,6 +44,7 @@
 #define I2S_LRCK_PIN 0
 #define I2S_DATA_PIN 2
 #define I2S_DATA_IN_PIN 34
+#define NS4168_SHUTDOWN_HOLD_US 110
 
 /* The SPM1423 PDM microphone is only valid while its clock stays within
    1.0 MHz - 3.25 MHz (see lib/audio/datasheet/SPM1423.md, sections 11.1
@@ -355,6 +357,10 @@ static esp_err_t _core2foraws_audio_speaker_remove( void )
     if (err != ESP_OK )
     {
         ESP_LOGW( _TAG, "Failed to power off speaker amplifier. core2foraws_power_speaker returned 0x%x.", err );
+    }
+    else
+    {
+        esp_rom_delay_us( NS4168_SHUTDOWN_HOLD_US );
     }
 
     i2s_channel_disable( _tx_handle );

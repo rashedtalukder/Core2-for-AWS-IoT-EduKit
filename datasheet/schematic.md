@@ -1,4 +1,23 @@
-# M5Stack Core2 for AWS – Hardware Reference (LLM Driver / BSP Specification)
+# M5Stack Core2 for AWS - Hardware Reference (LLM Driver / BSP Specification)
+
+## Source and Variant Scope
+
+This reference describes the **M5Stack Core2 for AWS IoT Kit**: a Core2 main
+unit plus the AWS-specific M5GO Bottom connected through M5Bus. It does not
+describe the standard Core2 by itself.
+
+Wiring was verified on 2026-07-31 against two checked-in official M5Stack
+assets:
+
+* `CORE2_V1.0_SCH_page_01.png` - Core2 V1.0 main-board schematic page,
+  SHA-256 `6c305db1571c5d0b2bf6bf88a747719ac07a7be236002d15e44fc5974aa50204`
+* `core2_for_aws_sch_01.webp` - Core2 for AWS add-on schematic,
+  SHA-256 `feed9faed66efe07cc0154b96b20f4f8065edaffc9781a93fd10b215f30eed63`
+
+Both files are byte-for-byte identical to the assets linked by the official
+[M5Stack Core2 for AWS documentation](https://docs.m5stack.com/en/core/core2_for_aws).
+The schematic images control physical wiring claims. Current product-page facts
+corroborate those claims but do not silently replace dated schematic revisions.
 
 ## Board Overview
 
@@ -257,7 +276,7 @@ Backup battery present.
 
 # Secure Element
 
-Chip: **ATECC608** (located on add-on board)
+Chip: **ATECC608** (located on add-on board), at 7-bit I2C address `0x35`.
 
 Interface: **I2C** (internal bus via M5Bus pins 17/18)
 

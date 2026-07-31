@@ -117,9 +117,11 @@ extern "C"
    * @brief Stops LVGL and releases the display, touch, and panel-I/O resources.
    *
    * The shared SPI bus remains initialized because the SD card may still use
-   * it. This function is idempotent.
+  * it. Touch teardown takes the internal-I2C lock so an LVGL or button-task
+  * read cannot overlap removal of the FT6336 panel-I/O device. This function
+  * is idempotent.
    *
-   * @return ESP_OK.
+  * @return ESP_OK on success, or the internal-I2C lock/device-removal error.
    */
   /* @[declare_core2foraws_display_deinit] */
   esp_err_t core2foraws_display_deinit( void );

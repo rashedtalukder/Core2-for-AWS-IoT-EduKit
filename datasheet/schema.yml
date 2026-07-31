@@ -1,8 +1,26 @@
 schema_version: "1.0"
 device:
-  name: "M5Stack Core2 for AWS"
-  variant: "Core2 + add-on board via M5Bus"
-  description: "Two-board wiring schema derived from the Core2 main schematic PDF and add-on board wiring diagram."
+  name: "M5Stack Core2 for AWS IoT Kit"
+  variant: "Core2 main unit + M5GO Bottom for AWS via M5Bus"
+  description: "AWS-specific two-board kit; not the standard Core2 by itself."
+
+source_evidence:
+  verified_on: "2026-07-31"
+  official_product_page: "https://docs.m5stack.com/en/core/core2_for_aws"
+  core_board_schematic:
+    file: "CORE2_V1.0_SCH_page_01.png"
+    sha256: "6c305db1571c5d0b2bf6bf88a747719ac07a7be236002d15e44fc5974aa50204"
+    official_url: "https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/646/CORE2_V1.0_SCH_page_01.png"
+    verification: "Checked-in file is byte-for-byte identical to the official asset."
+  aws_addon_schematic:
+    file: "core2_for_aws_sch_01.webp"
+    sha256: "feed9faed66efe07cc0154b96b20f4f8065edaffc9781a93fd10b215f30eed63"
+    official_url: "https://static-cdn.m5stack.com/resource/docs/products/core/core2_for_aws/core2_for_aws_sch_01.webp"
+    verification: "Checked-in file is byte-for-byte identical to the official asset."
+  precedence:
+    - "Use the schematic images for physical wiring and fitted-part evidence."
+    - "Use the current official product page as corroboration and for current published specifications."
+    - "When revisions differ, preserve both claims with dates; do not replace schematic evidence silently."
 
 power_nets:
   - name: "USB_5V"
@@ -22,7 +40,7 @@ power_nets:
 boards:
   core_board:
     name: "M5Stack Core2 main board"
-    source: "CORE2_V1.0_SCH_page_01.jpeg (Core2 mainboard schematic, page 1)"
+    source: "CORE2_V1.0_SCH_page_01.png (official Core2 V1.0 mainboard schematic, page 1)"
 
     mcu:
       ref: "U7"
@@ -277,8 +295,8 @@ boards:
           - { name: "SD card", cs: "GPIO4" }
 
   addon_board:
-    name: "Core2 for AWS add-on board"
-    source: "Provided add-on schematic image"
+    name: "M5GO Bottom for AWS add-on board"
+    source: "core2_for_aws_sch_01.webp (official Core2 for AWS add-on schematic)"
     attaches_to: "core_board.connectors.m5_bus"
 
     connectors:
@@ -390,6 +408,7 @@ boards:
           vcc: "+3.3V"
           gnd: "GND"
         notes:
+          - "Use ATECC608 as the canonical component name. The device uses 7-bit I2C address 0x35."
           - "Connected to internal I2C bus (GPIO21/GPIO22), same bus as AXP192, BM8563, touch panel, and MPU-6886."
           - "Non-standard wake/sleep/idle timing; serialize transactions relative to other devices on SYS_I2C."
 
@@ -497,7 +516,7 @@ notes:
   - "All add-on board onboard devices (MPU-6886, ATECC608, J3 I2C socket) use the internal I2C bus (GPIO21/GPIO22) via M5Bus pins 17/18. Port-A (Red) on GPIO32/GPIO33 is used exclusively by external Grove 'unit' accessories."
   - "GPIO25 (M5Bus pin 8) is relabeled RGB on the add-on board and drives the SK6812 LED chain via transistor Q1. GPIO25 is also the DAC2 pin, so those two uses are mutually exclusive."
   - "GPIO26 (M5Bus pin 10) passes through to the add-on GPIO socket J2 pin 2 and is NOT connected to the RGB chain."
-  - "Source basis: Core board from CORE2_V1.0_SCH_page_01.jpeg (page 1) and add-on board from core2_for_aws_sch_01.webp."
+  - "Source basis: Core board from CORE2_V1.0_SCH_page_01.png (page 1) and AWS add-on board from core2_for_aws_sch_01.webp; both files exactly match the official M5Stack assets listed in source_evidence."
 
 bsp_capabilities:
   reference_bsp: "espressif/esp-bsp component m5stack_core_2 (https://github.com/espressif/esp-bsp/tree/master/bsp/m5stack_core_2)"

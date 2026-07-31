@@ -39,8 +39,12 @@
 #include "core2foraws_common.h"
 #include "core2foraws_crypto.h"
 
+#define ATECC608_I2C_ADDRESS_8BIT 0x6A
+#define ATECC608_I2C_BAUD_HZ      100000
+
 static mbedtls_entropy_context _entropy;
 static mbedtls_ctr_drbg_context _ctr_drbg;
+static ATCAIfaceCfg _crypto_iface_cfg;
 
 static const char *_TAG = "CORE2FORAWS_CRYPTO";
 static bool _crypto_initialized = false;
@@ -94,7 +98,15 @@ esp_err_t core2foraws_crypto_init( void )
         return ESP_FAIL;
     }
 
-    ATCA_STATUS err = atcab_init( &cfg_ateccx08a_i2c_default );
+    _crypto_iface_cfg = cfg_ateccx08a_i2c_default;
+#ifdef ATCA_ENABLE_DEPRECATED
+    _crypto_iface_cfg.atcai2c.slave_address = ATECC608_I2C_ADDRESS_8BIT;
+#else
+    _crypto_iface_cfg.atcai2c.address = ATECC608_I2C_ADDRESS_8BIT;
+#endif
+    _crypto_iface_cfg.atcai2c.baud = ATECC608_I2C_BAUD_HZ;
+
+    ATCA_STATUS err = atcab_init( &_crypto_iface_cfg );
     
     if ( err != ATCA_SUCCESS ) 
     {

@@ -20,8 +20,9 @@ board-specific details — exact GPIO pin numbers, power sequencing, shared-bus
 arbitration — so that your application can say "turn on the speaker" instead of
 "set AXP192 register 0x12 bit 2, wait, then configure the I2S controller."
 
-This BSP targets the **M5Stack Core2 for AWS IoT Kit** specifically. That kit is
-**not** the same as the standard M5Stack Core2:
+This BSP targets the **M5Stack Core2 for AWS IoT Kit** specifically: the Core2
+main unit plus the AWS-specific **M5GO Bottom**. That combined kit is **not** the
+same as the standard M5Stack Core2 by itself:
 
 - It adds an **M5Bus add-on board** carrying a microphone, a 10-pixel addressable
   RGB LED strip, an MPU6886 IMU, and an **ATECC608 secure element** (used for AWS
@@ -154,12 +155,12 @@ graph TD
 | --- | --- | --- | --- |
 | common + internal I2C | Automatic foundation when BSP support is enabled; omitted entirely when disabled | Permanent I2C_NUM_0 bus, static recursive mutex, managed fixed-device handles | Board-lifetime resource; deinit is rejected |
 | power | Automatic, after internal I2C | AXP192 device handle and configured rails | `core2foraws_power_off()` powers down the board; there is no ordinary deinit |
-| display | Automatic when enabled | SPI LCD device, locked touch handle, LVGL task and DMA buffers | `core2foraws_display_deinit()` stops refresh and waits for active DMA before releasing display/touch/LVGL resources; shared SPI2 remains active |
+| display | Automatic when enabled | SPI LCD device, locked touch handle, LVGL task and DMA buffers | `core2foraws_display_deinit()` stops refresh, waits for active DMA, and takes internal-I2C ownership before releasing touch/display/LVGL resources; shared SPI2 remains active |
 | button | Automatic when enabled | Poll task and callback mutex | No public deinit; lifetime is the application lifetime |
 | motion / RTC / crypto | Automatic when enabled | Internal-I2C device handles; crypto library state | No public deinit; lifetime is the application lifetime |
 | RGB LED | Automatic when enabled | RMT channel and encoder | `core2foraws_rgb_led_deinit()` |
 | Wi-Fi | Stack setup is automatic; idempotent `core2foraws_wifi_start()` is explicit | Default STA netif, event handlers/group, Wi-Fi driver, optional provisioning manager | `core2foraws_wifi_deinit()` stops provisioning/radio before releasing BSP-owned resources |
-| audio | Explicit speaker or microphone enable | I2S_NUM_0 channel; GPIO0 ownership; one lifecycle/data mutex | Disable waits for bounded active I/O, then releases the channel |
+| audio | Explicit speaker or microphone enable | I2S_NUM_0 channel; GPIO0 ownership; one lifecycle/data mutex | Disable waits for bounded active I/O; speaker disable then holds NS4168 CTRL low for >100 us before releasing the channel |
 | SD | Explicit `core2foraws_sd_mount()` | SDSPI device, FAT mount at `/sd_card`, state mutex | `core2foraws_sd_unmount()`; display can run between 4 KiB file-I/O chunks |
 | expansion ports | Port A I2C and Port C UART begin explicitly; Port B operations configure on use | Reopenable external I2C bus with multiple managed devices, or UART2 | `core2foraws_expports_i2c_device_remove()` releases one accessory; `i2c_close()` releases all Port A devices/bus |
 
@@ -187,7 +188,7 @@ distinct on purpose:
 | Internal | `0x38` | FT6336 touch controller | display, automatic |
 | Internal | `0x51` | BM8563 RTC | rtc, automatic |
 | Internal | `0x68` | MPU6886 IMU | motion, automatic |
-| Internal | `0x35` | ATECC608 secure element | crypto, automatic and initialized last among fixed I2C devices |
+| Internal | `0x35` | ATECC608 Trust&GO secure element | crypto, automatic and initialized last among fixed I2C devices; board-fixed address at 100 kHz |
 | Internal | application-defined | Add-on J3 internal-I2C socket | application; shares the same mutex and pull-ups |
 | **External / Port A** (`CORE2FORAWS_I2C_EXTERNAL`, I2C_NUM_1), SDA=GPIO32, SCL=GPIO33 | application-defined | External Grove "unit" accessories only | expansion ports, on demand |
 
@@ -233,7 +234,10 @@ graph LR
 - The raw bus handle is an escape hatch for `esp_lcd_touch`. The BSP touch read
   function explicitly takes internal-bus ownership around both panel-I/O read
   and coordinate extraction, so LVGL, buttons, and the ATECC wake pulse cannot
-  drive the same lines concurrently.
+  drive the same lines concurrently. Display teardown takes that same ownership
+  before deleting the FT6336 panel-I/O device and validates the touch handle
+  only after acquiring it, preventing the application-lifetime button task from
+  racing a display deinit/reinit cycle.
 - The internal bus is permanent because fixed board modules retain handles. The
   external bus can close and reopen; close removes every managed accessory.
 
@@ -295,7 +299,10 @@ can play *or* record, but not both at once. The audio module enforces this with 
 static mutex and state flags; calling `speaker_write()` while the mic is enabled
 returns `ESP_ERR_INVALID_STATE`. Data reads/writes hold that same mutex with a
 bounded timeout, so another task cannot delete the active I2S channel mid-DMA.
-This is a hardware constraint, not a software limitation.
+Speaker disable drives the NS4168 CTRL line low and waits 110 us before removing
+the I2S channel, satisfying the datasheet's strict `TOFF > 100 us` shutdown
+entry time even during immediate mode changes. This is a hardware constraint,
+not a software limitation.
 
 ### 5.5 Buffer placement — internal DRAM vs. PSRAM
 
@@ -403,7 +410,10 @@ modules. When BSP support is disabled, only `core2foraws_init()` remains exposed
   it open a second, unmanaged bus. This keeps *all* internal-bus devices behind
   the one mutex. [CMakeLists.txt](../CMakeLists.txt) wraps the cryptoauthlib
   `hal_i2c_*` entry points, and [core2foraws_crypto_hal.c](../lib/crypto/core2foraws_crypto_hal.c)
-  implements them with the common I2C API.
+  implements them with the common I2C API. Initialization copies the library
+  interface configuration and pins it to the board's 8-bit address `0x6A`
+  (7-bit `0x35`) at 100 kHz, so consuming-project cryptoauthlib Kconfig cannot
+  redirect this fixed board device.
 - **rgb_led** treats the strip as **one device with 10 pixels** (not 10 separate
   LEDs), driven by the RMT peripheral with precise SK6812 timing. The strip is
   powered from 5 V, so it only works after the PMU enables the boost rail. A
@@ -598,7 +608,7 @@ DMA buffers, or lifecycle ownership require the corresponding hardware test.
 | LCD/SD arbitration | Accepted: common owns SPI2; one binary semaphore spans asynchronous LCD DMA and bounded SD chunks. |
 | Display memory | Accepted: two 40-line buffers in internal DMA RAM; 50 lines is recommended only after validating DRAM headroom. |
 | Audio integration | Raw `i2s_std`/`i2s_pdm` retained for now; `esp_codec_dev` remains a future maintenance option but cannot remove the GPIO0 mutual-exclusion constraint. |
-| Secure-element naming | Public documentation and APIs use the board-level name `ATECC608` without a revision suffix. |
+| Secure-element identity | BSP code, APIs, and documentation use the canonical component name `ATECC608`. Its board contract is the internal I2C bus at 7-bit address `0x35` and 100 kHz. |
 
 ---
 
