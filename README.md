@@ -38,6 +38,36 @@ API safety notes for this revision:
 - `core2foraws_expports_uart_read()` requires the destination buffer capacity before the output byte count.
 - Audio I/O is bounded by `AUDIO_IO_TIMEOUT_MS` and serialized against speaker/microphone disable.
 - `core2foraws_display_deinit()` releases display, touch, and LVGL resources while leaving shared SPI2 available to SD.
+- Guard LVGL object access with `lvgl_port_lock()`, **not** `core2foraws_common_spi_semaphore`. The SPI semaphore is held across the display's DMA transfer; taking it around an LVGL call that can trigger a refresh will deadlock.
+- Every wait on the shared SPI bus is bounded by `CORE2FORAWS_SPI_LOCK_TIMEOUT_MS` (500 ms), so SD APIs can return `ESP_ERR_TIMEOUT` if a display transfer stalls.
+
+## Internal DRAM budget
+
+The board has 8 MB of PSRAM but only a small internal DRAM pool, and PSRAM is **not** DMA-addressable. Every DMA-driven BSP buffer — the LVGL draw buffers, audio I2S, shared SPI2, and the SK6812 RMT buffer — must live in internal DRAM. PSRAM is never a fallback for these.
+
+The largest single consumer is the pair of LVGL draw buffers, sized by `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES`:
+
+| Lines | Per buffer | Total (double-buffered) |
+| --- | --- | --- |
+| 25 | 16,000 B | 32,000 B |
+| 40 (default) | 25,600 B | 51,200 B |
+| 50 | 32,000 B | 64,000 B |
+
+Each buffer needs a single **contiguous** DMA-capable block. Contiguity, not total free heap, is what fails once Wi-Fi and BLE are running, so a build that boots fine on the bench can still fail to bring up the display in the field. `core2foraws_display_init()` checks this before allocating and logs the required versus available sizes, returning `ESP_ERR_NO_MEM` rather than failing silently.
+
+Call `core2foraws_common_heap_report()` after `core2foraws_init()` and again once the network is up to measure your own headroom. Validate any change to the draw buffer height against those numbers.
+
+If you need more internal DRAM, apply these in your application's `sdkconfig` (a component cannot set them for you), roughly in order of payoff:
+
+| Setting | Effect |
+| --- | --- |
+| `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y` | Moves Wi-Fi and LWIP buffers to PSRAM. Usually the largest win. |
+| `CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED=y` | Frees the Bluetooth controller's reserved DRAM when credentials already exist. BLE is then unavailable until reboot. |
+| `CONFIG_ESP32_WIFI_TX_BUFFER=dynamic` | Replaces static TX buffers with dynamic allocation. |
+| `CONFIG_ESP32_WIFI_STATIC_RX_BUFFER_NUM` (lower it) | Each static RX buffer costs ~1.6 KB of internal DRAM. |
+| `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES` (lower it) | Last resort — costs display throughput. |
+
+When provisioning actually runs, the provisioning manager's `FREE_BTDM` scheme handler already releases Bluetooth memory once provisioning ends; no application action is needed for that path.
 
 We also have code examples, drivers, or content available in other frameworks:
 

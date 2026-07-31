@@ -91,8 +91,9 @@ extern "C" {
  * @endcode
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK      : Success
- *  - ESP_FAIL    : Failed to mount the SD card
+ *  - ESP_OK          : Success
+ *  - ESP_ERR_TIMEOUT : Shared SPI bus or SD lock was not free in time
+ *  - ESP_FAIL        : Failed to mount the SD card
  */
 /* @[declare_core2foraws_sd_mount] */
 esp_err_t core2foraws_sd_mount( void );
@@ -150,8 +151,10 @@ esp_err_t core2foraws_sd_mount( void );
  * @param[in] to_read_length The number of characters to read from the file.
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK      : Success
- *  - ESP_FAIL    : Failed to read file from SD
+ *  - ESP_OK          : Success
+ *  - ESP_ERR_TIMEOUT : Shared SPI bus or SD lock was not free in time.
+ *                      @p message holds any bytes read before the timeout.
+ *  - ESP_FAIL        : Failed to read file from SD
  */
 /* @[declare_core2foraws_sd_read] */
 esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_read_length );
@@ -206,8 +209,11 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
  * @param[out] wrote_length The pointer to the number of characters that was written to the file.
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK      : Success
- *  - ESP_FAIL    : Failed to write to SD card
+ *  - ESP_OK          : Success
+ *  - ESP_ERR_TIMEOUT : Shared SPI bus or SD lock was not free in time.
+ *                      @p wrote_length holds the bytes written before the
+ *                      timeout.
+ *  - ESP_FAIL        : Failed to write file to SD
  */
 /* @[declare_core2foraws_sd_write] */
 esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size_t *wrote_length );
@@ -221,6 +227,10 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
  * and the screen use the same SPI bus. The BSP serializes unmount against
  * file operations and display DMA automatically; applications must not take
  * the shared SPI semaphore around this API.
+ *
+ * @note Every wait on the shared SPI bus is bounded by
+ * @ref CORE2FORAWS_SPI_LOCK_TIMEOUT_MS, so a stalled display transfer returns
+ * `ESP_ERR_TIMEOUT` rather than blocking the caller indefinitely.
  *
  * To learn more about using the SD card, visit Espressif's virtual
  * [file system component](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/storage/vfs.html)

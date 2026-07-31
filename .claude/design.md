@@ -249,13 +249,43 @@ order. They are coordinated by the binary
 `core2foraws_common_spi_semaphore`.
 
 The display takes the semaphore on LVGL's `LV_EVENT_FLUSH_START` event and gives
-it from the SPI color-transfer completion callback, so the lock covers the full
-asynchronous DMA transfer rather than only transaction enqueue. SD mount, file
-I/O, and unmount hold the same semaphore for their operations. A binary
-semaphore is required because LCD acquisition happens in the LVGL task while
-release happens in the completion callback. SD lifecycle state has a separate
-mutex; file data is transferred in 4 KiB chunks and releases the SPI semaphore
-between chunks so a large file cannot starve display refresh indefinitely.
+it from the SPI color-transfer completion callback. This spans two contexts on
+purpose. `esp_lcd` acquires the ESP-IDF SPI bus lock, sends `RAMWR` with
+`SPI_TRANS_CS_KEEP_ACTIVE`, **queues** the colour transfer, and then releases the
+bus lock — all before the DMA has run. That leaves a window in which the panel's
+CS is asserted but the bus lock is free, and an SD transaction scheduled there
+would assert a second CS. This semaphore closes that window; the ESP-IDF
+per-transaction arbitration alone does not.
+
+A binary semaphore is required because the acquisition happens in the LVGL task
+while the release happens in the completion ISR, and a FreeRTOS mutex cannot be
+given from an ISR. Because a binary semaphore has no owner tracking, two rules
+apply:
+
+- **Every wait is bounded** by `CORE2FORAWS_SPI_LOCK_TIMEOUT_MS` (500 ms). A
+  transfer that never completes degrades to a logged error and an unsynchronized
+  flush rather than an unrecoverable hang.
+- **The flush tracks what it actually acquired.** If the take times out, the
+  completion callback must not give, or it would hand a free count to an
+  unrelated holder. `_flush_holds_spi_lock` records this.
+
+Exactly one completion callback fires per flush: `esp_lcd` sets
+`en_trans_done_cb` only on the final chunk, and the shared bus `max_transfer_sz`
+is derived from the draw buffer size (§5.5) so there is a single chunk anyway.
+A `_Static_assert` in the display driver keeps that relationship true.
+
+Teardown takes and immediately releases the semaphore as a barrier — waiting for
+an in-flight transfer without holding it across LVGL teardown, which can re-enter
+the flush path.
+
+SD mount, file I/O, and unmount hold the same semaphore for their operations and
+return `ESP_ERR_TIMEOUT` if it does not come free. SD lifecycle state has a
+separate mutex; file data is transferred in 4 KiB chunks and releases the SPI
+semaphore between chunks so a large file cannot starve display refresh.
+
+Application code must **not** take this semaphore around LVGL calls — use
+`lvgl_port_lock()` for that. Holding the SPI semaphore across an LVGL call that
+triggers a refresh deadlocks against the flush.
 
 ### 5.4 The shared audio clock (GPIO0)
 
@@ -275,18 +305,36 @@ DMA-capable and fast. The BSP keeps every DMA- or latency-critical buffer in
 internal DRAM and leaves PSRAM for large, CPU-only, latency-tolerant data.
 
 - **LVGL display draw buffers stay in internal DRAM** (`buff_dma = true`,
-  `buff_spiram = false`). The display uses two 40-line RGB565 buffers (51,200
-  bytes total). Moving them to PSRAM forces non-DMA byte copies that stall the
-  LVGL flush and cause UI hangs/crashes.
-- **Fifty lines is the performance recommendation when DRAM permits.** Two
-  50-line buffers use 64,000 bytes, reducing partial-transfer overhead at the
-  cost of 12,800 additional bytes of internal DMA-capable RAM. Any increase
-  must be validated against application DRAM headroom; PSRAM is not a fallback.
+  `buff_spiram = false`). Their height is `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES`
+  (default 40 lines, 2 × 25,600 bytes RGB565). Moving them to PSRAM forces
+  non-DMA byte copies that stall the LVGL flush and cause UI hangs/crashes.
+- **The buffer height is an application budget, not a BSP constant.** The right
+  value depends on how much internal DRAM the consuming application leaves
+  free, so it is Kconfig-selectable (range 10–60) rather than hardcoded. Each
+  buffer needs one *contiguous* DMA-capable block, and contiguity fails before
+  total free size does once Wi-Fi and BLE are up.
+  `core2foraws_display_init()` checks `heap_caps_get_largest_free_block(
+  MALLOC_CAP_DMA )` before allocating and returns `ESP_ERR_NO_MEM` with the
+  required and available sizes instead of failing opaquely.
+- **`core2foraws_common_heap_report()`** reports free size and largest
+  contiguous block for internal DRAM, DMA-capable DRAM, and PSRAM. Use it to
+  validate a budget change; the verification procedure is in
+  [.claude/rules/memory-placement.md](rules/memory-placement.md).
 - **Audio I2S, SD/shared-SPI, and SK6812 RMT buffers** are likewise internal —
   their DMA engines cannot reach PSRAM.
 - **Application scratch/payload buffers** (mic copies, UART payloads, crypto
   serial/public-key strings) are the right place to use PSRAM; the public
   headers demonstrate `heap_caps_malloc( ..., MALLOC_CAP_SPIRAM )` for these.
+
+The shared SPI2 bus derives its `max_transfer_sz` from the same Kconfig value
+via `CORE2FORAWS_SPI_MAX_TRANSFER_BYTES`, so the bus ceiling and the draw
+buffer cannot drift apart; a mismatch is a compile-time error in the display
+driver rather than a runtime transfer failure.
+
+Application-level levers for reclaiming internal DRAM (Wi-Fi/LWIP in PSRAM,
+releasing BLE controller memory when already provisioned, Wi-Fi buffer tuning)
+are documented in the "Internal DRAM budget" section of
+[README.md](../README.md).
 
 The full policy and decision checklist live in
 [.claude/rules/memory-placement.md](rules/memory-placement.md).
@@ -470,6 +518,13 @@ free stack in bytes to the output parameter, and returns `esp_err_t`. Keep a
 safety margin above the observed peak; under-sizing the LVGL stack reproduces
 the canvas-render overflow it was raised to fix.
 
+`core2foraws_common_heap_report(tag, &stats)` is the companion diagnostic for
+heap rather than stack. It logs and returns free size plus largest contiguous
+block for internal DRAM, DMA-capable DRAM, and PSRAM. Call it after
+`core2foraws_init()` and again once the network is associated — the DMA
+contiguity low-water mark is reached after Wi-Fi and BLE are up, not during BSP
+bring-up.
+
 Set the log level in menuconfig (`Component config → Log output`) to see more or
 less.
 
@@ -497,10 +552,16 @@ less.
   switch is disabled, common headers and sources are omitted and
   `core2foraws_init()` returns `ESP_OK` directly. [Kconfig](../Kconfig) exposes
   the flags under *"Core2 for AWS hardware features."*
+- **Tuning options:** beyond the per-module enables, Kconfig exposes
+  `CORE2FORAWS_LCD_DRAW_BUF_LINES` (LVGL draw buffer height, §5.5) and
+  `CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED` (frees Bluetooth controller
+  DRAM when credentials already exist, at the cost of BLE for that boot).
 - **Monolithic dependency graph:** source selection follows Kconfig, but ESP-IDF
   expands component `REQUIRES` before Kconfig-dependent CMake logic is reliable.
   Therefore this single component keeps a stable superset of ESP-IDF
-  requirements. True dependency pruning requires packaging modules as separate
+  requirements. `esp_driver_spi` is in the base requirement set because the
+  common layer owns the shared SPI2 bus regardless of whether display or SD is
+  selected. True dependency pruning requires packaging modules as separate
   ESP-IDF components and is intentionally not attempted as an in-place tweak.
 - **Managed dependencies** ([idf_component.yml](../idf_component.yml)):
   `esp-cryptoauthlib`, LVGL 9, `esp_lvgl_port`, `esp_lcd_touch` (+ FT5x06

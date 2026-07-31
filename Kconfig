@@ -86,4 +86,25 @@ menu "Core2 for AWS hardware features"
         help
           Enable Wi-Fi connection helper utilities.
 
+    config CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED
+        bool "Release BLE controller memory when already provisioned"
+        depends on SOFTWARE_WIFI_SUPPORT && BT_ENABLED
+        default n
+        help
+          When credentials are already stored, BLE provisioning is skipped for
+          the whole boot, yet the Bluetooth controller still holds its reserved
+          internal DRAM. Enabling this releases that memory before Wi-Fi
+          starts, typically reclaiming tens of KB of internal DRAM — the
+          largest single lever available to an application that needs headroom
+          for the LVGL draw buffers.
+
+          Once released, BLE cannot be used again until the next reboot. Leave
+          this disabled if your application uses BLE for anything other than
+          provisioning, or if it calls core2foraws_wifi_reset() and expects to
+          re-enter provisioning without restarting.
+
+          When provisioning does run, BLE memory is already freed afterwards by
+          the provisioning manager's FREE_BTDM scheme handler; this option only
+          covers the already-provisioned path.
+
 endmenu

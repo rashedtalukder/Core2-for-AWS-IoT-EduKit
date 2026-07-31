@@ -192,6 +192,16 @@ esp_err_t core2foraws_wifi_init( void );
  *  }
  * @endcode
  *
+ * @note When credentials are already stored, provisioning is skipped. Enabling
+ * `CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED` makes that path also
+ * release the Bluetooth controller's reserved internal DRAM, reclaiming tens
+ * of KB for the rest of the boot. BLE then stays unavailable until the next
+ * reboot, so leave the option disabled if the application uses BLE for
+ * anything beyond provisioning or expects core2foraws_wifi_reset() to
+ * re-enter provisioning without restarting. When provisioning does run, the
+ * provisioning manager's FREE_BTDM scheme handler already frees that memory
+ * once provisioning ends.
+ *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
  *  - ESP_ERR_WIFI_NOT_INIT : WiFi is not initialized
@@ -411,7 +421,7 @@ esp_err_t core2foraws_wifi_reset( void );
  *      core2foraws_init();
  *      core2foraws_wifi_start();
  * 
- *      xSemaphoreTake( core2foraws_common_spi_semaphore, pdMS_TO_TICKS( 80 ) );
+ *      lvgl_port_lock( 0 );
  *      
  *      lv_coord_t qr_square_px = 200;
  *      lv_color_t amazon_squid_ink = lv_color_hex( 0x232F3E );
@@ -421,7 +431,7 @@ esp_err_t core2foraws_wifi_reset( void );
  *      if ( core2foraws_wifi_prov_str_get( wifi_provisioning_str ) == ESP_OK )
  *          lv_qrcode_update( display_wifi_qr, wifi_provisioning_str, strlen( wifi_provisioning_str ) );
  *      
- *      xSemaphoreGive( core2foraws_common_spi_semaphore );
+ *      lvgl_port_unlock();
  * 
  *      xEventGroupWaitBits(
  *          wifi_event_group,   // The event group being tested.
@@ -430,12 +440,16 @@ esp_err_t core2foraws_wifi_reset( void );
  *          pdTRUE,             // Don't wait for all bits (there's only one anyway).
  *          portMAX_DELAY );    // Wait indefinitely.
  *
- *		xSemaphoreTake( core2foraws_common_spi_semaphore, pdMS_TO_TICKS( 80 ) );
- *	    lv_obj_del( display_wifi_qr );
- *		xSemaphoreGive( core2foraws_common_spi_semaphore );
+ *      lvgl_port_lock( 0 );
+ *      lv_obj_del( display_wifi_qr );
+ *      lvgl_port_unlock();
  *      
  *  }
  * @endcode
+ *
+ * @note LVGL object access is guarded by the LVGL port lock, not by
+ * @ref core2foraws_common_spi_semaphore. Taking the SPI semaphore around an
+ * LVGL call that can trigger a refresh deadlocks against the display flush.
  *
  * @param[out] wifi_prov_str The pointer to the wifi provisioning string.
  * @return 

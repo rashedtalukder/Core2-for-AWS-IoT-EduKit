@@ -30,7 +30,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
 
+#include <sdkconfig.h>
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
 #include <esp_check.h>
@@ -61,7 +63,20 @@
 #define LCD_PIXEL_CLK_HZ    ( 40 * 1000 * 1000 )
 #define LCD_CMD_BITS        8
 #define LCD_PARAM_BITS      8
+
+#ifdef CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES
+#define LCD_DRAW_BUF_LINES  CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES
+#else
 #define LCD_DRAW_BUF_LINES  40
+#endif
+
+/* 2 bytes per pixel (RGB565). */
+#define LCD_DRAW_BUF_BYTES  ( LCD_H_RES * LCD_DRAW_BUF_LINES * 2 )
+
+/* Both draw buffers are flushed through the shared SPI2 bus, so a single
+ * buffer must fit inside the bus's configured max_transfer_sz. */
+_Static_assert( LCD_DRAW_BUF_BYTES <= CORE2FORAWS_SPI_MAX_TRANSFER_BYTES,
+                "LCD draw buffer exceeds the shared SPI max transfer size" );
 
 /* FT6336U touch controller on internal I2C bus */
 #define TOUCH_INT_GPIO      GPIO_NUM_39
@@ -78,11 +93,76 @@ static esp_lcd_panel_handle_t    _panel_handle = NULL;
 static esp_lcd_touch_handle_t    _touch_handle = NULL;
 static lv_indev_t               *_touch_indev = NULL;
 static bool                      _lvgl_initialized = false;
+static atomic_bool               _flush_holds_spi_lock;
 
+/*
+ * esp_lcd releases the SPI bus lock when it *queues* the colour transfer, not
+ * when the DMA completes, and leaves CS asserted from the command phase
+ * (esp_lcd_panel_io_spi.c: acquire -> RAMWR with SPI_TRANS_CS_KEEP_ACTIVE ->
+ * queue_trans -> release). This semaphore covers that window so an SD
+ * transaction cannot assert its own CS while the panel is still selected,
+ * which is why it is taken here and released in the completion ISR.
+ */
 static void _display_flush_start( lv_event_t *event )
 {
     (void)event;
-    xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+
+    if( core2foraws_common_spi_semaphore == NULL )
+    {
+        return;
+    }
+
+    if( xSemaphoreTake( core2foraws_common_spi_semaphore,
+                        pdMS_TO_TICKS( CORE2FORAWS_SPI_LOCK_TIMEOUT_MS ) ) ==
+        pdTRUE )
+    {
+        atomic_store( &_flush_holds_spi_lock, true );
+    }
+    else
+    {
+        ESP_LOGE( _TAG, "Shared SPI busy for %ums; flushing unsynchronized",
+                  ( unsigned int ) CORE2FORAWS_SPI_LOCK_TIMEOUT_MS );
+    }
+}
+
+/**
+ * @brief Verify enough contiguous DMA-capable DRAM exists for both draw
+ * buffers before esp_lvgl_port tries to allocate them.
+ *
+ * esp_lvgl_port only reports a NULL display on failure, which gives the user
+ * nothing to act on. Contiguity is what actually fails here, not total free
+ * heap, so check the largest free block explicitly.
+ */
+static esp_err_t _display_draw_buffer_check( void )
+{
+    const size_t needed = LCD_DRAW_BUF_BYTES;
+    size_t largest = heap_caps_get_largest_free_block( MALLOC_CAP_DMA );
+    size_t available = heap_caps_get_free_size( MALLOC_CAP_DMA );
+
+    if( largest >= needed && available >= needed * 2 )
+    {
+        ESP_LOGD( _TAG,
+                  "Draw buffers need 2 x %u bytes; %u free, largest block %u",
+                  ( unsigned int ) needed,
+                  ( unsigned int ) available, ( unsigned int ) largest );
+        return ESP_OK;
+    }
+
+    ESP_LOGE( _TAG,
+              "Not enough DMA-capable DRAM for the LVGL draw buffers. "
+              "Need 2 contiguous blocks of %u bytes (%u total) at "
+              "CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES=%d, but only %u bytes "
+              "are free with a largest block of %u bytes.",
+              ( unsigned int ) needed, ( unsigned int ) ( needed * 2 ),
+              LCD_DRAW_BUF_LINES, ( unsigned int ) available,
+              ( unsigned int ) largest );
+    ESP_LOGE( _TAG,
+              "Lower CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES, or free internal "
+              "DRAM with CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y and "
+              "CONFIG_ESP32_WIFI_TX_BUFFER=dynamic. PSRAM cannot hold these "
+              "buffers; it is not DMA-addressable." );
+
+    return ESP_ERR_NO_MEM;
 }
 
 static bool _display_flush_done( esp_lcd_panel_io_handle_t panel_io,
@@ -93,7 +173,13 @@ static bool _display_flush_done( esp_lcd_panel_io_handle_t panel_io,
     (void)event_data;
 
     BaseType_t task_woken = pdFALSE;
-    xSemaphoreGiveFromISR( core2foraws_common_spi_semaphore, &task_woken );
+
+    /* Release only what this flush actually acquired, so a take that timed out
+       cannot hand a free count to an unrelated holder. */
+    if( atomic_exchange( &_flush_holds_spi_lock, false ) )
+    {
+        xSemaphoreGiveFromISR( core2foraws_common_spi_semaphore, &task_woken );
+    }
     lvgl_port_flush_ready( ( lv_display_t * )user_ctx );
     return task_woken == pdTRUE;
 }
@@ -146,20 +232,22 @@ static void _lvgl_touch_read( lv_indev_t *indev, lv_indev_data_t *data )
 
 static void _display_cleanup( void )
 {
-    bool spi_locked = false;
     if( _lvgl_initialized )
     {
         lvgl_port_stop();
     }
 
-    /* LV_EVENT_FLUSH_START takes this semaphore and the SPI completion ISR
-     * gives it. After stopping LVGL refresh, taking it waits for any active
-     * callback to finish before its display context is freed. */
+    /* Refresh is stopped, so no new flush can start. Taking and immediately
+     * releasing the semaphore waits for an in-flight transfer to finish before
+     * the display context its callback references is freed. It is not held
+     * across teardown: LVGL teardown can re-enter the flush path, and this
+     * binary semaphore has no owner tracking to make that re-entry safe. */
     if( core2foraws_common_spi_semaphore != NULL &&
         xSemaphoreTake( core2foraws_common_spi_semaphore,
-                        portMAX_DELAY ) == pdTRUE )
+                        pdMS_TO_TICKS( CORE2FORAWS_SPI_LOCK_TIMEOUT_MS ) ) ==
+        pdTRUE )
     {
-        spi_locked = true;
+        xSemaphoreGive( core2foraws_common_spi_semaphore );
     }
 
     if( _touch_indev != NULL )
@@ -201,11 +289,6 @@ static void _display_cleanup( void )
     {
         esp_lcd_panel_io_del( _io_handle );
         _io_handle = NULL;
-    }
-
-    if( spi_locked )
-    {
-        xSemaphoreGive( core2foraws_common_spi_semaphore );
     }
 }
 
@@ -374,6 +457,13 @@ esp_err_t core2foraws_display_init( void )
     _lvgl_initialized = true;
 
     /* ── 4. Add display to LVGL port ── */
+    err = _display_draw_buffer_check();
+    if( err != ESP_OK )
+    {
+        _display_cleanup();
+        return err;
+    }
+
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle     = _io_handle,
         .panel_handle  = _panel_handle,
@@ -401,9 +491,13 @@ esp_err_t core2foraws_display_init( void )
     core2foraws_display_ptr = lvgl_port_add_disp( &disp_cfg );
     if( core2foraws_display_ptr == NULL )
     {
-        ESP_LOGE( _TAG, "Failed to add display to LVGL port" );
+        ESP_LOGE( _TAG,
+                  "Failed to add display to LVGL port. The 2 x %u byte draw "
+                  "buffers could not be allocated; lower "
+                  "CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES (currently %d).",
+                  ( unsigned int ) LCD_DRAW_BUF_BYTES, LCD_DRAW_BUF_LINES );
         _display_cleanup();
-        return ESP_FAIL;
+        return ESP_ERR_NO_MEM;
     }
 
     const esp_lcd_panel_io_callbacks_t io_callbacks = {

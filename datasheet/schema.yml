@@ -511,14 +511,14 @@ bsp_capabilities:
 
   display_config:
     draw_buffer_lines:
-      current: 40
+      current: "CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES (default 40, range 10-60)"
       standard_bsp: 50
-      note: "Raising LCD_DRAW_BUF_LINES from 40 to 50 reduces partial-transfer overhead on the 40 MHz SPI bus"
+      note: "Application-level budget, not a fixed constant. Each of the two buffers needs a contiguous DMA-capable internal DRAM block; PSRAM is not usable. Do not copy the standard BSP's 50 without following the verification procedure in .claude/rules/memory-placement.md"
     swap_bytes:
       current: true
       standard_bsp: "conditional on BSP_LCD_BIGENDIAN"
       note: "Hard-coding true is correct for ILI9341 over SPI with LVGL 9; no change needed"
     lvgl_task_affinity:
-      current: -1
+      current: 1
       standard_bsp: 1
-      note: "Standard BSP pins LVGL task to core 1. Consider setting task_affinity = 1 if camera or another CPU-intensive peripheral is added on core 0"
+      note: "LVGL task is pinned to core 1, matching the standard BSP, keeping the DMA display flush off core 0 where Wi-Fi and the IDF event loop run"

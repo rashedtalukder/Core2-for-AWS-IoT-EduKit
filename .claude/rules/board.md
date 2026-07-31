@@ -666,19 +666,28 @@ espressif/esp_codec_dev:
 
 The audio constraint that **speaker and microphone cannot be active simultaneously** (shared `GPIO0`) still applies regardless of whether `esp_codec_dev` is used — that is a hardware constraint, not a library one.
 
-## 38. LVGL draw buffer size: 40 lines vs. the standard BSP's 50
+## 38. LVGL draw buffer size is an application budget, not a fixed constant
 
-The Core2 for AWS display driver uses `LCD_DRAW_BUF_LINES = 40`. The standard Core2 BSP uses `BSP_LCD_H_RES * 50` lines as its draw buffer size. A 50-line buffer reduces the number of partial transfers per frame and can improve throughput on the 40 MHz SPI bus. Consider raising `LCD_DRAW_BUF_LINES` to 50.
+The standard Espressif Core2 BSP hardcodes a 50-line draw buffer. Do **not**
+copy that number here. On this board the draw buffer height is
+`CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES` (default 40), because the right value
+depends on how much internal DRAM the consuming application leaves free — and
+these buffers must be contiguous DMA-capable internal DRAM.
 
-## 39. `lvgl_port_cfg_t.task_affinity` is not set; standard BSP pins LVGL to core 1
+Larger values reduce partial transfers per frame, but internal DRAM is the
+scarce resource on this board and PSRAM is not a fallback. Treat any change as
+a measured decision, not a default to raise. The authoritative policy and the
+required verification procedure are in
+[.claude/rules/memory-placement.md](memory-placement.md); do not restate or
+contradict them here.
 
-The standard BSP does:
+## 39. LVGL is pinned to core 1
 
-```c
-cfg.lvgl_port_cfg.task_affinity = 1;
-```
-
-The Core2 for AWS BSP initialises LVGL with `ESP_LVGL_PORT_INIT_CONFIG()` and does not override `task_affinity`, leaving it at `-1` (no affinity). If future work adds camera or another CPU-intensive peripheral on core 0, pinning LVGL to core 1 avoids scheduling contention. This is a proactive setting rather than a required fix.
+[lib/display/core2foraws_display.c](../../lib/display/core2foraws_display.c)
+sets `lvgl_cfg.task_affinity = 1`, matching the standard BSP. This keeps the
+DMA-driven display flush off core 0, where the Wi-Fi stack and the IDF event
+loop run by default, avoiding scheduling contention that shows up as dropped
+frames. Keep this pinning if camera or other CPU-intensive work is added.
 
 ## 40. `swap_bytes = true` is already correct for LVGL 9 + SPI ILI9341
 

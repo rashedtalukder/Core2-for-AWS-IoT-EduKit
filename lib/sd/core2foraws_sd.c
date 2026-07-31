@@ -46,6 +46,10 @@ static atomic_uchar _sd_mutex_state;
 
 #define SD_IO_CHUNK_SIZE 4096U
 
+/* A mount or a queued file operation can legitimately take a while on a slow
+   card, so the lifecycle mutex is more patient than the SPI bus semaphore. */
+#define SD_LIFECYCLE_TIMEOUT_MS 5000U
+
 static const char *_TAG = "CORE2FORAWS_SD";
 
 static esp_err_t _sd_lock( void )
@@ -65,7 +69,8 @@ static esp_err_t _sd_lock( void )
     }
 
     if( _sd_mutex == NULL ) return ESP_ERR_NO_MEM;
-    return xSemaphoreTake( _sd_mutex, portMAX_DELAY ) == pdTRUE
+    return xSemaphoreTake( _sd_mutex,
+                           pdMS_TO_TICKS( SD_LIFECYCLE_TIMEOUT_MS ) ) == pdTRUE
                ? ESP_OK
                : ESP_ERR_TIMEOUT;
 }
@@ -73,6 +78,33 @@ static esp_err_t _sd_lock( void )
 static void _sd_unlock( void )
 {
     xSemaphoreGive( _sd_mutex );
+}
+
+/* The display holds the shared SPI semaphore across its DMA transfer, so a
+   bounded wait here surfaces a stalled flush as a timeout instead of hanging
+   the calling task forever. */
+static esp_err_t _sd_spi_lock( void )
+{
+    if( core2foraws_common_spi_semaphore == NULL )
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if( xSemaphoreTake( core2foraws_common_spi_semaphore,
+                        pdMS_TO_TICKS( CORE2FORAWS_SPI_LOCK_TIMEOUT_MS ) ) !=
+        pdTRUE )
+    {
+        ESP_LOGE( _TAG, "Timed out waiting %ums for the shared SPI bus",
+                  ( unsigned int ) CORE2FORAWS_SPI_LOCK_TIMEOUT_MS );
+        return ESP_ERR_TIMEOUT;
+    }
+
+    return ESP_OK;
+}
+
+static void _sd_spi_unlock( void )
+{
+    xSemaphoreGive( core2foraws_common_spi_semaphore );
 }
 
 /**
@@ -128,13 +160,18 @@ esp_err_t core2foraws_sd_mount( void )
     sdspi_slot_config_t slot_config = SDSPI_SLOT_CONFIG_DEFAULT();
 #endif
     slot_config.gpio_cs = SD_SPI_CS;
-    xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+    err = _sd_spi_lock();
+    if( err != ESP_OK )
+    {
+        _sd_unlock();
+        return err;
+    }
 #if ESP_IDF_VERSION > ESP_IDF_VERSION_VAL( 4, 1, 0 )
     err = esp_vfs_fat_sdspi_mount( _mount_path, &host, &slot_config, &mount_config, &card );
 #else
     err = esp_vfs_fat_sdmmc_mount( _mount_path, &host, &slot_config, &mount_config, &card );
 #endif
-    xSemaphoreGive( core2foraws_common_spi_semaphore );
+    _sd_spi_unlock();
     if ( err == ESP_OK )
     {
         ESP_LOGI( _TAG, "Mounted SD card %s at mount point %s", card->cid.name, _mount_path );
@@ -181,9 +218,13 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
     memcpy( path, _mount_path, _mount_path_len );
     memcpy( path + _mount_path_len, file_name, file_name_len + 1 );
     
-    xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+    err = _sd_spi_lock();
+    if( err != ESP_OK )
+    {
+        goto cleanup;
+    }
     f = fopen( path, "r" );
-    xSemaphoreGive( core2foraws_common_spi_semaphore );
+    _sd_spi_unlock();
     if ( f == NULL )
     {
         err = ESP_FAIL;
@@ -198,10 +239,14 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
         size_t chunk = remaining < SD_IO_CHUNK_SIZE
                            ? remaining
                            : SD_IO_CHUNK_SIZE;
-        xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+        err = _sd_spi_lock();
+        if( err != ESP_OK )
+        {
+            break;
+        }
         size_t got = fread( message + bytes_read, 1, chunk, f );
         bool read_error = ferror( f );
-        xSemaphoreGive( core2foraws_common_spi_semaphore );
+        _sd_spi_unlock();
         bytes_read += got;
         remaining -= got;
         if( read_error )
@@ -219,9 +264,11 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
 cleanup:
     if( f != NULL )
     {
-        xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
-        fclose( f );
-        xSemaphoreGive( core2foraws_common_spi_semaphore );
+        if( _sd_spi_lock() == ESP_OK )
+        {
+            fclose( f );
+            _sd_spi_unlock();
+        }
     }
 
     free( path );
@@ -263,9 +310,13 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
     memcpy( path, _mount_path, _mount_path_len );
     memcpy( path + _mount_path_len, file_name, file_name_len + 1 );
 
-    xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+    err = _sd_spi_lock();
+    if( err != ESP_OK )
+    {
+        goto cleanup;
+    }
     f = fopen(path, "w");
-    xSemaphoreGive( core2foraws_common_spi_semaphore );
+    _sd_spi_unlock();
     if (f == NULL) {
         err = ESP_FAIL;
         ESP_LOGE( _TAG, "Failed to open SD card path %s for writing", path );
@@ -280,10 +331,14 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
         size_t chunk = remaining < SD_IO_CHUNK_SIZE
                            ? remaining
                            : SD_IO_CHUNK_SIZE;
-        xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+        err = _sd_spi_lock();
+        if( err != ESP_OK )
+        {
+            break;
+        }
         size_t wrote = fwrite( message + *wrote_length, 1, chunk, f );
         bool write_error = ferror( f );
-        xSemaphoreGive( core2foraws_common_spi_semaphore );
+        _sd_spi_unlock();
         *wrote_length += wrote;
         if( write_error || wrote != chunk )
         {
@@ -298,9 +353,11 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
 cleanup:
     if( f != NULL )
     {
-        xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
-        fclose( f );
-        xSemaphoreGive( core2foraws_common_spi_semaphore );
+        if( _sd_spi_lock() == ESP_OK )
+        {
+            fclose( f );
+            _sd_spi_unlock();
+        }
     }
 
     free( path );
@@ -321,9 +378,14 @@ esp_err_t core2foraws_sd_unmount( void )
         return ESP_ERR_INVALID_STATE;
     }
 
-    xSemaphoreTake( core2foraws_common_spi_semaphore, portMAX_DELAY );
+    err = _sd_spi_lock();
+    if( err != ESP_OK )
+    {
+        _sd_unlock();
+        return err;
+    }
     err = esp_vfs_fat_sdcard_unmount( _mount_path, _sd_card );
-    xSemaphoreGive( core2foraws_common_spi_semaphore );
+    _sd_spi_unlock();
     
     if ( err == ESP_OK )
     {

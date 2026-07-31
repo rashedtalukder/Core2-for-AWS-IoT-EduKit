@@ -96,11 +96,18 @@ extern "C"
    * @note The core2foraws_init() calls this function
    * when the hardware feature is enabled.
    *
+   * @note The two LVGL draw buffers are sized by
+   * `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES` and must be allocated as
+   * contiguous, DMA-capable internal DRAM. If that allocation cannot be met,
+   * initialization fails with `ESP_ERR_NO_MEM` and logs the required and
+   * available sizes; lower that option or free internal DRAM.
+   *
    * @return
    * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
    *  - ESP_OK                : Success
    *  - ESP_ERR_INVALID_STATE : Library is unable to initialize
-   *  - ESP_ERR_NO_MEM        : Out of memory
+   *  - ESP_ERR_NO_MEM        : Insufficient DMA-capable DRAM for the draw
+   *                            buffers, or another allocation failed
    */
   /* @[declare_core2foraws_display_init] */
   esp_err_t core2foraws_display_init( void );

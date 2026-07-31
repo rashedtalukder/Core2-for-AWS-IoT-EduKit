@@ -33,6 +33,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <sdkconfig.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -62,6 +63,23 @@ extern "C" {
 /* @[declare_core2foraws_common_i2s_internal] */
 
 /**
+ * @brief Largest single transfer the shared SPI2 bus must support, in bytes.
+ *
+ * The LVGL draw buffer is the largest consumer of the shared bus, so this is
+ * derived from `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES` at 320 pixels per line
+ * and 2 bytes per RGB565 pixel. When the display is not built, the SD card is
+ * the only consumer and a 4 KB ceiling is sufficient.
+ */
+/* @[declare_core2foraws_common_spi_max_transfer_bytes] */
+#ifdef CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES
+#define CORE2FORAWS_SPI_MAX_TRANSFER_BYTES \
+    ( 320 * CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES * 2 )
+#else
+#define CORE2FORAWS_SPI_MAX_TRANSFER_BYTES ( 4096 )
+#endif
+/* @[declare_core2foraws_common_spi_max_transfer_bytes] */
+
+/**
  * @brief FreeRTOS binary semaphore used to serialize display and SD card SPI
  * transfers.
  * 
@@ -70,11 +88,24 @@ extern "C" {
  * @note The BSP display and SD modules take this semaphore automatically.
  * Application code should use the LVGL port lock for LVGL object access and
  * only take this semaphore directly when adding another device or raw
- * transaction to the shared SPI bus.
+ * transaction to the shared SPI bus. Never hold it across an LVGL call that
+ * can trigger a refresh.
  */
 /* @[declare_core2foraws_common_spi_semaphore] */
 extern SemaphoreHandle_t core2foraws_common_spi_semaphore;
 /* @[declare_core2foraws_common_spi_semaphore] */
+
+/**
+ * @brief Maximum time to wait for the shared display/SD SPI semaphore.
+ *
+ * A full-screen flush at 40 MHz takes roughly 25 ms, so this leaves ample
+ * margin while still bounding every wait. Nothing waits on the shared SPI
+ * semaphore indefinitely: a stalled transfer surfaces as a logged timeout
+ * error instead of an unrecoverable hang.
+ */
+/* @[declare_core2foraws_spi_lock_timeout_ms] */
+#define CORE2FORAWS_SPI_LOCK_TIMEOUT_MS 500U
+/* @[declare_core2foraws_spi_lock_timeout_ms] */
 
 /**
  * @brief Creates the shared display/SD SPI semaphore if needed.
@@ -157,6 +188,53 @@ esp_err_t core2foraws_common_task_stack_watermark( const char *tag,
                                                    TaskHandle_t task,
                                                    size_t *watermark_bytes );
 /* @[declare_core2foraws_common_task_stack_watermark] */
+
+/**
+ * @brief Snapshot of the heap pools the BSP cares about.
+ */
+/* @[declare_core2foraws_common_heap_stats_t] */
+typedef struct
+{
+    size_t internal_free;           /**< Total free internal DRAM. */
+    size_t internal_largest_block;  /**< Largest contiguous internal block. */
+    size_t dma_free;                /**< Total free DMA-capable DRAM. */
+    size_t dma_largest_block;       /**< Largest contiguous DMA-capable block. */
+    size_t spiram_free;             /**< Total free external PSRAM. */
+} core2foraws_common_heap_stats_t;
+/* @[declare_core2foraws_common_heap_stats_t] */
+
+/**
+ * @brief Report free internal DRAM, DMA-capable DRAM, and PSRAM.
+ *
+ * Gets, and logs at info level, the free size and largest contiguous block of
+ * each pool the BSP allocates from. Use it to validate memory budgets after a
+ * change: the LVGL draw buffers, audio I2S, shared-SPI, and SK6812 RMT buffers
+ * all require *contiguous* DMA-capable internal DRAM, and contiguity fails
+ * before total free size does once Wi-Fi and BLE are running.
+ *
+ * Call it after `core2foraws_init()` and again once the network is up, since
+ * the Wi-Fi and BLE stacks are the largest internal-DRAM consumers.
+ *
+ * **Example:**
+ *
+ * Check DMA headroom after bring-up.
+ * @code{c}
+ *  #include "core2foraws.h"
+ *
+ *  core2foraws_init();
+ *  core2foraws_common_heap_stats_t heap;
+ *  core2foraws_common_heap_report( "APP", &heap );
+ * @endcode
+ *
+ * @param[in] tag Log tag to print under. If `NULL`, a default tag is used.
+ * @param[out] stats Receives the snapshot. May be `NULL` to log only.
+ * @return
+ *  - ESP_OK : Success
+ */
+/* @[declare_core2foraws_common_heap_report] */
+esp_err_t core2foraws_common_heap_report(
+    const char *tag, core2foraws_common_heap_stats_t *stats );
+/* @[declare_core2foraws_common_heap_report] */
 
 #ifdef __cplusplus
 }

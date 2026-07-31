@@ -21,6 +21,7 @@ set( CORE2FORAWS_REQUIRES               ${ADC_COMPONENT}
                                         "esp_driver_i2c"
                                         "esp_driver_i2s"
                                         "esp_driver_rmt"
+                                        "esp_driver_spi"
                                         "esp_timer"
                                         "esp-cryptoauthlib"
                                         "fatfs"
@@ -84,8 +85,7 @@ if( CONFIG_SOFTWARE_DISPLAY_SUPPORT )
 
     list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_DISPLAY_SRCS} )
     list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${CORE2FORAWS_DISPLAY_INCLUDE_DIRS} )
-    list( APPEND CORE2FORAWS_REQUIRES       "esp_lcd"
-                                              "esp_driver_spi" )
+    list( APPEND CORE2FORAWS_REQUIRES       "esp_lcd" )
 endif()
 
 
@@ -140,6 +140,10 @@ if( CONFIG_SOFTWARE_WIFI_SUPPORT )
 
     list( APPEND CORE2FORAWS_SRCS           ${CORE2FORAWS_WIFI_SRCS} )
     list( APPEND CORE2FORAWS_INCLUDE_DIRS   ${CORE2FORAWS_WIFI_INCLUDE_DIRS} )
+
+    if( CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED )
+        list( APPEND CORE2FORAWS_PRIV_REQUIRES  "bt" )
+    endif()
 
     if( IDF_VERSION_MAJOR GREATER_EQUAL 5 )
         # ESP-IDF v5+: qrcode is a managed component (espressif/qrcode)

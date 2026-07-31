@@ -33,12 +33,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <sdkconfig.h>
 #include <esp_log.h>
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <nvs_flash.h>
 #include <wifi_provisioning/manager.h>
 #include <wifi_provisioning/scheme_ble.h>
+#ifdef CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED
+#include <esp_bt.h>
+#endif
 
 #include "qrcode.h"
 
@@ -484,6 +488,24 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
         ESP_LOGI( _TAG, "\tAlready provisioned, starting Wi-Fi STA");
 
         wifi_prov_mgr_deinit();
+
+#ifdef CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED
+        /* Provisioning is skipped for this boot, so the controller's reserved
+         * internal DRAM is dead weight. Released before esp_wifi_start() so
+         * the reclaimed memory is available to the Wi-Fi stack itself. */
+        esp_err_t bt_err = esp_bt_controller_mem_release( ESP_BT_MODE_BTDM );
+        if ( bt_err == ESP_OK )
+        {
+            ESP_LOGI( _TAG, "\tReleased BLE controller memory; BLE is "
+                            "unavailable until the next reboot" );
+        }
+        else if ( bt_err != ESP_ERR_INVALID_STATE )
+        {
+            ESP_LOGW( _TAG, "\tFailed to release BLE controller memory: 0x%x",
+                      bt_err );
+        }
+#endif
+
         err = esp_wifi_set_mode( WIFI_MODE_STA );
         if ( err != ESP_OK )
         {

@@ -29,6 +29,7 @@
 #include <inttypes.h>
 #include <stdatomic.h>
 #include <esp_log.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <driver/spi_master.h>
@@ -52,7 +53,7 @@ enum
 #define SHARED_SPI_MOSI GPIO_NUM_23
 #define SHARED_SPI_MISO GPIO_NUM_38
 #define SHARED_SPI_SCLK GPIO_NUM_18
-#define SHARED_SPI_MAX_TRANSFER_BYTES ( 320 * 50 * sizeof( uint16_t ) )
+#define SHARED_SPI_MAX_TRANSFER_BYTES CORE2FORAWS_SPI_MAX_TRANSFER_BYTES
 
 static const char *_TAG = "CORE2FORAWS_COMMON";
 
@@ -162,6 +163,39 @@ esp_err_t core2foraws_common_task_stack_watermark( const char *tag,
               "Task '%s' minimum free stack: %u bytes",
               name != NULL ? name : "self",
               ( unsigned int ) *watermark_bytes );
+
+    return ESP_OK;
+}
+
+esp_err_t core2foraws_common_heap_report(
+    const char *tag, core2foraws_common_heap_stats_t *stats )
+{
+    core2foraws_common_heap_stats_t local;
+
+    local.internal_free = heap_caps_get_free_size( MALLOC_CAP_INTERNAL );
+    local.internal_largest_block =
+        heap_caps_get_largest_free_block( MALLOC_CAP_INTERNAL );
+    local.dma_free = heap_caps_get_free_size( MALLOC_CAP_DMA );
+    local.dma_largest_block =
+        heap_caps_get_largest_free_block( MALLOC_CAP_DMA );
+    local.spiram_free = heap_caps_get_free_size( MALLOC_CAP_SPIRAM );
+
+    const char *log_tag = tag != NULL ? tag : _TAG;
+    ESP_LOGI( log_tag,
+              "Internal DRAM free: %u bytes (largest block %u bytes)",
+              ( unsigned int ) local.internal_free,
+              ( unsigned int ) local.internal_largest_block );
+    ESP_LOGI( log_tag,
+              "DMA-capable free: %u bytes (largest block %u bytes)",
+              ( unsigned int ) local.dma_free,
+              ( unsigned int ) local.dma_largest_block );
+    ESP_LOGI( log_tag, "PSRAM free: %u bytes",
+              ( unsigned int ) local.spiram_free );
+
+    if( stats != NULL )
+    {
+        *stats = local;
+    }
 
     return ESP_OK;
 }
