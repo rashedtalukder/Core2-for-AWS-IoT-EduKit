@@ -672,7 +672,7 @@ The audio constraint that **speaker and microphone cannot be active simultaneous
 
 The standard Espressif Core2 BSP hardcodes a 50-line draw buffer. Do **not**
 copy that number here. On this board the draw buffer height is
-`CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES` (default 40), because the right value
+`CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES` (default 20), because the right value
 depends on how much internal DRAM the consuming application leaves free — and
 these buffers must be contiguous DMA-capable internal DRAM.
 

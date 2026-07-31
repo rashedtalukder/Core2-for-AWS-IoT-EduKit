@@ -38,14 +38,14 @@ empirically on this board:
   (commits `87cb344`, `aeaeb19`).
 
 `LCD_DRAW_BUF_LINES` is set from `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES`
-(default 40, range 10–60). Two buffers of `lines * 320 * 2` bytes are
+(default 20, range 10–60). Two buffers of `lines * 320 * 2` bytes are
 allocated, each needing a single **contiguous** DMA-capable block:
 
 | Lines | Per buffer | Total |
 | --- | --- | --- |
-| 25 | 16,000 B | 32,000 B |
-| 40 (default) | 25,600 B | 51,200 B |
-| 50 | 32,000 B | 64,000 B |
+| 10 | 6,400 B | 12,800 B |
+| 20 (default) | 12,800 B | 25,600 B |
+| 40 | 25,600 B | 51,200 B |
 
 This is a **budget, not a fixed value**. The correct setting depends on what
 the consuming application does with internal DRAM, which the BSP cannot know,
@@ -59,8 +59,8 @@ never "solve" a DRAM shortage by relocating these buffers to PSRAM.
    active — the DRAM low-water mark is reached after the network is up, not at
    `core2foraws_init()`.
 2. Call `core2foraws_common_heap_report()` at both points and record
-   `dma_largest_block` and `dma_free`. Contiguity is what fails first;
-   total free size is not sufficient evidence.
+  `dma_largest_block`, `dma_free`, and `dma_minimum_free`. Contiguity is what
+  fails first; current total free size alone is not sufficient evidence.
 3. Confirm `dma_largest_block` still clears one buffer with margin.
 4. Record the measured framerate alongside the heap numbers in the commit
    message. Commit `aeaeb19` reduced this value on measured evidence; any

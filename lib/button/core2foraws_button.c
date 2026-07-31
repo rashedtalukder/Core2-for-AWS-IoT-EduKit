@@ -122,6 +122,7 @@ struct
                                 { NULL, NULL, NULL } } };
 
 #define BUTTON_POLL_INTERVAL_MS 20
+#define BUTTON_TASK_STACK_SIZE  4096
 
 /* The FT6336U capacitive controller reports a maximum of two concurrent
  * touch points (datasheet section 14.1). */
@@ -391,7 +392,7 @@ esp_err_t core2foraws_button_init( void )
   if( _button_mutex != NULL )
   {
     err = xTaskCreatePinnedToCore( button_press_task, "buttonPress",
-                                   configMINIMAL_STACK_SIZE * 6, NULL, 1,
+                                   BUTTON_TASK_STACK_SIZE, NULL, 1,
                                    &_button_task_handle, 1 );
     if( err != pdPASS || _button_task_handle == NULL )
     {

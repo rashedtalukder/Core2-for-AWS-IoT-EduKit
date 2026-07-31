@@ -173,24 +173,33 @@ esp_err_t core2foraws_common_heap_report(
     core2foraws_common_heap_stats_t local;
 
     local.internal_free = heap_caps_get_free_size( MALLOC_CAP_INTERNAL );
+    local.internal_minimum_free =
+        heap_caps_get_minimum_free_size( MALLOC_CAP_INTERNAL );
     local.internal_largest_block =
         heap_caps_get_largest_free_block( MALLOC_CAP_INTERNAL );
     local.dma_free = heap_caps_get_free_size( MALLOC_CAP_DMA );
+    local.dma_minimum_free =
+        heap_caps_get_minimum_free_size( MALLOC_CAP_DMA );
     local.dma_largest_block =
         heap_caps_get_largest_free_block( MALLOC_CAP_DMA );
     local.spiram_free = heap_caps_get_free_size( MALLOC_CAP_SPIRAM );
+    local.spiram_minimum_free =
+        heap_caps_get_minimum_free_size( MALLOC_CAP_SPIRAM );
 
     const char *log_tag = tag != NULL ? tag : _TAG;
     ESP_LOGI( log_tag,
-              "Internal DRAM free: %u bytes (largest block %u bytes)",
+              "Internal DRAM free: %u bytes (minimum %u, largest block %u)",
               ( unsigned int ) local.internal_free,
+              ( unsigned int ) local.internal_minimum_free,
               ( unsigned int ) local.internal_largest_block );
     ESP_LOGI( log_tag,
-              "DMA-capable free: %u bytes (largest block %u bytes)",
+              "DMA-capable free: %u bytes (minimum %u, largest block %u)",
               ( unsigned int ) local.dma_free,
+              ( unsigned int ) local.dma_minimum_free,
               ( unsigned int ) local.dma_largest_block );
-    ESP_LOGI( log_tag, "PSRAM free: %u bytes",
-              ( unsigned int ) local.spiram_free );
+    ESP_LOGI( log_tag, "PSRAM free: %u bytes (minimum %u)",
+              ( unsigned int ) local.spiram_free,
+              ( unsigned int ) local.spiram_minimum_free );
 
     if( stats != NULL )
     {

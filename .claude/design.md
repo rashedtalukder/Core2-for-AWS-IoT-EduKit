@@ -313,7 +313,7 @@ internal DRAM and leaves PSRAM for large, CPU-only, latency-tolerant data.
 
 - **LVGL display draw buffers stay in internal DRAM** (`buff_dma = true`,
   `buff_spiram = false`). Their height is `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES`
-  (default 40 lines, 2 × 25,600 bytes RGB565). Moving them to PSRAM forces
+  (default 20 lines, 2 × 12,800 bytes RGB565). Moving them to PSRAM forces
   non-DMA byte copies that stall the LVGL flush and cause UI hangs/crashes.
 - **The buffer height is an application budget, not a BSP constant.** The right
   value depends on how much internal DRAM the consuming application leaves
@@ -323,9 +323,9 @@ internal DRAM and leaves PSRAM for large, CPU-only, latency-tolerant data.
   `core2foraws_display_init()` checks `heap_caps_get_largest_free_block(
   MALLOC_CAP_DMA )` before allocating and returns `ESP_ERR_NO_MEM` with the
   required and available sizes instead of failing opaquely.
-- **`core2foraws_common_heap_report()`** reports free size and largest
-  contiguous block for internal DRAM, DMA-capable DRAM, and PSRAM. Use it to
-  validate a budget change; the verification procedure is in
+- **`core2foraws_common_heap_report()`** reports current and minimum-ever free
+  size plus the largest contiguous block for internal DRAM, DMA-capable DRAM,
+  and PSRAM. Use it to validate a budget change; the verification procedure is in
   [.claude/rules/memory-placement.md](rules/memory-placement.md).
 - **Audio I2S, SD/shared-SPI, and SK6812 RMT buffers** are likewise internal —
   their DMA engines cannot reach PSRAM.
@@ -516,8 +516,8 @@ not contend with the Wi-Fi stack and IDF event loop that run there by default:
 
 | Task | Name | Stack (allocated) | Core | Notes |
 | --- | --- | --- | --- | --- |
-| LVGL render/flush | `LVGL task` | 10240 B | 1 | Stack raised from the 7168 B default for canvas/image rendering; pinned via `lvgl_cfg.task_affinity = 1`. |
-| Virtual-button poll | `buttonPress` | `configMINIMAL_STACK_SIZE * 6` | 1 | 20 ms touch poll; logs its own watermark once after the first poll. |
+| LVGL render/flush | `taskLVGL` | 10240 B | 1 | Stack raised from the 7168 B default after a canvas/image-render overflow; the standard hardware suite leaves 7784 B free but does not reproduce that application workload, so this allocation is retained. |
+| Virtual-button poll | `buttonPress` | 4096 B | 1 | 20 ms touch poll; measured with at least 1224 B free after the complete hardware suite, leaving callback headroom. |
 
 Stacks are intentionally sized with headroom rather than trimmed blindly. To
 right-size them, call
@@ -529,8 +529,9 @@ safety margin above the observed peak; under-sizing the LVGL stack reproduces
 the canvas-render overflow it was raised to fix.
 
 `core2foraws_common_heap_report(tag, &stats)` is the companion diagnostic for
-heap rather than stack. It logs and returns free size plus largest contiguous
-block for internal DRAM, DMA-capable DRAM, and PSRAM. Call it after
+heap rather than stack. It logs and returns current and minimum-ever free size
+plus the largest contiguous block for internal DRAM, DMA-capable DRAM, and
+PSRAM. Call it after
 `core2foraws_init()` and again once the network is associated — the DMA
 contiguity low-water mark is reached after Wi-Fi and BLE are up, not during BSP
 bring-up.

@@ -530,7 +530,7 @@ bsp_capabilities:
 
   display_config:
     draw_buffer_lines:
-      current: "CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES (default 40, range 10-60)"
+      current: "CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES (default 20, range 10-60)"
       standard_bsp: 50
       note: "Application-level budget, not a fixed constant. Each of the two buffers needs a contiguous DMA-capable internal DRAM block; PSRAM is not usable. Do not copy the standard BSP's 50 without following the verification procedure in .claude/rules/memory-placement.md"
     swap_bytes:

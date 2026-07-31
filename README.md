@@ -49,13 +49,15 @@ The largest single consumer is the pair of LVGL draw buffers, sized by `CONFIG_C
 
 | Lines | Per buffer | Total (double-buffered) |
 | --- | --- | --- |
-| 25 | 16,000 B | 32,000 B |
-| 40 (default) | 25,600 B | 51,200 B |
-| 50 | 32,000 B | 64,000 B |
+| 10 | 6,400 B | 12,800 B |
+| 20 (default) | 12,800 B | 25,600 B |
+| 40 | 25,600 B | 51,200 B |
 
 Each buffer needs a single **contiguous** DMA-capable block. Contiguity, not total free heap, is what fails once Wi-Fi and BLE are running, so a build that boots fine on the bench can still fail to bring up the display in the field. `core2foraws_display_init()` checks this before allocating and logs the required versus available sizes, returning `ESP_ERR_NO_MEM` rather than failing silently.
 
-Call `core2foraws_common_heap_report()` after `core2foraws_init()` and again once the network is up to measure your own headroom. Validate any change to the draw buffer height against those numbers.
+Call `core2foraws_common_heap_report()` after `core2foraws_init()` and again once the network is up to measure current free memory, the minimum-ever free watermark, and the largest contiguous block. Validate any change to the draw buffer height against those numbers.
+
+The 20-line default was validated on hardware with 48 display, audio, storage, concurrency, pressure, and soak tests. Compared with 40 lines, it reclaimed about 25 KB of internal DMA memory while the 60-flush stress test changed from 949 ms to 983 ms. The validated low-water marks were 128,823 bytes of internal DRAM and 99,811 bytes of DMA-capable DRAM, with a 110,592-byte largest DMA block.
 
 If you need more internal DRAM, apply these in your application's `sdkconfig` (a component cannot set them for you), roughly in order of payoff:
 

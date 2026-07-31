@@ -158,7 +158,7 @@ esp_err_t core2foraws_common_error( int32_t error_code );
  *
  * The BSP creates two long-lived tasks whose stacks you may want to measure:
  * the virtual-button poll task (named `"buttonPress"`) and the LVGL
- * render/flush task (named `"LVGL task"`). Look either up with
+ * render/flush task (named `"taskLVGL"`). Look either up with
  * [`xTaskGetHandle()`](https://www.freertos.org/a00021.html#xTaskGetHandle)
  * or pass `NULL` to measure the calling task.
  *
@@ -169,7 +169,7 @@ esp_err_t core2foraws_common_error( int32_t error_code );
  *  #include "core2foraws.h"
  *
  *  core2foraws_init();
- *  TaskHandle_t lvgl = xTaskGetHandle( "LVGL task" );
+ *  TaskHandle_t lvgl = xTaskGetHandle( "taskLVGL" );
  *  size_t free_stack_bytes;
  *  esp_err_t err = core2foraws_common_task_stack_watermark(
  *      "APP", lvgl, &free_stack_bytes );
@@ -195,22 +195,26 @@ esp_err_t core2foraws_common_task_stack_watermark( const char *tag,
 /* @[declare_core2foraws_common_heap_stats_t] */
 typedef struct
 {
-    size_t internal_free;           /**< Total free internal DRAM. */
-    size_t internal_largest_block;  /**< Largest contiguous internal block. */
-    size_t dma_free;                /**< Total free DMA-capable DRAM. */
-    size_t dma_largest_block;       /**< Largest contiguous DMA-capable block. */
-    size_t spiram_free;             /**< Total free external PSRAM. */
+    size_t internal_free;          /**< Current free internal DRAM. */
+    size_t internal_minimum_free;  /**< Lowest free internal DRAM since boot. */
+    size_t internal_largest_block; /**< Largest contiguous internal block. */
+    size_t dma_free;               /**< Current free DMA-capable DRAM. */
+    size_t dma_minimum_free;       /**< Lowest free DMA DRAM since boot. */
+    size_t dma_largest_block;      /**< Largest contiguous DMA-capable block. */
+    size_t spiram_free;            /**< Current free external PSRAM. */
+    size_t spiram_minimum_free;    /**< Lowest free external PSRAM since boot. */
 } core2foraws_common_heap_stats_t;
 /* @[declare_core2foraws_common_heap_stats_t] */
 
 /**
  * @brief Report free internal DRAM, DMA-capable DRAM, and PSRAM.
  *
- * Gets, and logs at info level, the free size and largest contiguous block of
- * each pool the BSP allocates from. Use it to validate memory budgets after a
- * change: the LVGL draw buffers, audio I2S, shared-SPI, and SK6812 RMT buffers
- * all require *contiguous* DMA-capable internal DRAM, and contiguity fails
- * before total free size does once Wi-Fi and BLE are running.
+ * Gets, and logs at info level, the current and minimum-ever free size plus the
+ * largest contiguous block of each pool the BSP allocates from. Use it to
+ * validate memory budgets after a change: the LVGL draw buffers, audio I2S,
+ * shared-SPI, and SK6812 RMT buffers all require *contiguous* DMA-capable
+ * internal DRAM, and contiguity fails before total free size does once Wi-Fi
+ * and BLE are running.
  *
  * Call it after `core2foraws_init()` and again once the network is up, since
  * the Wi-Fi and BLE stacks are the largest internal-DRAM consumers.
