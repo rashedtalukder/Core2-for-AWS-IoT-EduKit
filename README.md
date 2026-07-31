@@ -61,11 +61,16 @@ If you need more internal DRAM, apply these in your application's `sdkconfig` (a
 
 | Setting | Effect |
 | --- | --- |
-| `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y` | Moves Wi-Fi and LWIP buffers to PSRAM. Usually the largest win. |
+| `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y` | Moves Wi-Fi and LWIP buffers to PSRAM. Usually the largest win (~62 KB internal DRAM freed in testing). |
+| `CONFIG_LV_USE_CLIB_MALLOC=y` | LVGL's heap uses the C-library allocator so it can spill to PSRAM, instead of reserving a fixed 64 KB pool in internal DRAM up-front. The DMA draw buffers still stay internal, so display throughput is unaffected. |
 | `CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED=y` | Frees the Bluetooth controller's reserved DRAM when credentials already exist. BLE is then unavailable until reboot. |
+| `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096` | Routes general heap allocations ≥ 4 KB to PSRAM by default (lower than the 16 KB IDF default). |
+| `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y` | Releases the large TLS handshake buffers after each handshake completes, lowering peak internal usage. |
 | `CONFIG_ESP32_WIFI_TX_BUFFER=dynamic` | Replaces static TX buffers with dynamic allocation. |
 | `CONFIG_ESP32_WIFI_STATIC_RX_BUFFER_NUM` (lower it) | Each static RX buffer costs ~1.6 KB of internal DRAM. |
 | `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES` (lower it) | Last resort — costs display throughput. |
+
+On an ESP32-D0WDQ6-V3 with the display initialized, enabling `CONFIG_LV_USE_CLIB_MALLOC` together with `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096` raised the largest **contiguous** DMA-capable block from ~28 KB to ~86 KB (roughly 3×) — enough headroom for the draw buffers to survive display re-init while Wi-Fi and BLE are running.
 
 When provisioning actually runs, the provisioning manager's `FREE_BTDM` scheme handler already releases Bluetooth memory once provisioning ends; no application action is needed for that path.
 
