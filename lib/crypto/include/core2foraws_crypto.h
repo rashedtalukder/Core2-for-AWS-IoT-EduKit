@@ -36,6 +36,7 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <esp_err.h>
+#include <mbedtls/bignum.h>
 #include "cryptoauthlib.h"
 
 /**
@@ -47,6 +48,9 @@ extern "C" {
 
 /**
  * @brief The maximum crypto signature size supported by the library
+ *
+ * @note This is 1 KB, so allocate signature buffers on the heap rather than
+ * the stack.
  */
 /* @[declare_core2foraws_crypto_max_signature_size] */
 #define CRYPTO_MAX_SIGNATURE_SIZE MBEDTLS_MPI_MAX_SIZE

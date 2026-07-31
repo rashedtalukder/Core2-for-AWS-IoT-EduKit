@@ -532,6 +532,10 @@ esp_err_t core2foraws_power_rail_state_get( power_rail_t rail, bool *enabled )
         case POWER_RAIL_DCDC3:
             *enabled = !!( val & ( 1 << 1 ) );
             break;
+        /* LDO1 is the always-on RTC rail; it has no enable bit. */
+        case POWER_RAIL_LDO1:
+            *enabled = true;
+            break;
         case POWER_RAIL_LDO2:
             *enabled = !!( val & ( 1 << 2 ) );
             break;
@@ -572,6 +576,9 @@ esp_err_t core2foraws_power_rail_state_set( power_rail_t rail, bool enabled )
         case POWER_RAIL_EXTEN:
             mask = ( 1 << 6 );
             break;
+        /* LDO1 powers the RTC domain and cannot be switched off. */
+        case POWER_RAIL_LDO1:
+            return ESP_ERR_NOT_SUPPORTED;
         default:
             return ESP_ERR_INVALID_ARG;
     }
@@ -596,7 +603,8 @@ esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts
 
     const axp192_rail_cfg_t *cfg = &_axp192_rail_configs[ rail ];
     if ( cfg->step_millivolts == 0 ) {
-        return ESP_ERR_INVALID_ARG;
+        /* LDO1 is fixed and EXTEN is a switch, so neither is adjustable. */
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
     ret = core2foraws_power_axp_reg_get( cfg->voltage_reg, &val );
@@ -623,7 +631,8 @@ esp_err_t core2foraws_power_rail_mv_set( power_rail_t rail, uint16_t millivolts 
     const axp192_rail_cfg_t *cfg = &_axp192_rail_configs[ rail ];
     if ( cfg->step_millivolts == 0 )
     {
-        return ESP_ERR_INVALID_ARG;
+        /* LDO1 is fixed and EXTEN is a switch, so neither is adjustable. */
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
     if ( ( millivolts < cfg->min_millivolts ) || ( millivolts > cfg->max_millivolts ) )

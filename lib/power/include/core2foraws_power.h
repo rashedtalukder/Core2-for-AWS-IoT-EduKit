@@ -44,6 +44,10 @@ extern "C" {
 
 /**
  * @brief The enumerated list of power rail options.
+ *
+ * @note @ref POWER_RAIL_LDO1 is the always-on RTC rail: it always reads as
+ * enabled and cannot be switched or adjusted. @ref POWER_RAIL_EXTEN is a
+ * switch, so its voltage cannot be adjusted either.
  */
 /* @[declare_core2foraws_power_power_rail_t] */
 typedef enum 
@@ -481,8 +485,8 @@ esp_err_t core2foraws_power_axp_twiddle( uint8_t reg, uint8_t affect, uint8_t va
  * @param[in] rail The power rail to retrieve the state of.
  * @param[out] enabled Pointer to the current state of the rail.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK                : Success
- *  - ESP_ERR_INVALID_ARG	: Driver parameter error
+ *  - ESP_OK                : Success. @ref POWER_RAIL_LDO1 always reports true.
+ *  - ESP_ERR_INVALID_ARG	: Null pointer or unknown rail
  */
 /* @[declare_core2foraws_power_rail_state_get] */
 esp_err_t core2foraws_power_rail_state_get( power_rail_t rail, bool *enabled );
@@ -502,7 +506,8 @@ esp_err_t core2foraws_power_rail_state_get( power_rail_t rail, bool *enabled );
  * @param[out] enabled The state to set the rail to.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
- *  - ESP_ERR_INVALID_ARG	: Driver parameter error
+ *  - ESP_ERR_NOT_SUPPORTED : @ref POWER_RAIL_LDO1 cannot be switched
+ *  - ESP_ERR_INVALID_ARG	: Unknown rail
  */
 /* @[declare_core2foraws_power_rail_state_set] */
 esp_err_t core2foraws_power_rail_state_set( power_rail_t rail, bool enabled );
@@ -523,7 +528,8 @@ esp_err_t core2foraws_power_rail_state_set( power_rail_t rail, bool enabled );
  * millivolts.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
- *  - ESP_ERR_INVALID_ARG	: Driver parameter error
+ *  - ESP_ERR_NOT_SUPPORTED : Rail has no adjustable voltage (LDO1, EXTEN)
+ *  - ESP_ERR_INVALID_ARG	: Null pointer or unknown rail
  */
 /* @[declare_core2foraws_power_rail_mv_get] */
 esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts );
@@ -544,7 +550,9 @@ esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts
  * The value must match the AXP192 step size for that rail.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
- *  - ESP_ERR_INVALID_ARG	: Driver parameter error
+ *  - ESP_ERR_NOT_SUPPORTED : Rail has no adjustable voltage (LDO1, EXTEN)
+ *  - ESP_ERR_INVALID_ARG	: Unknown rail, or a voltage outside the rail's
+ *                            range or off its step size
  */
 /* @[declare_core2foraws_power_rail_mv_set] */
 esp_err_t core2foraws_power_rail_mv_set( power_rail_t rail, uint16_t millivolts );
