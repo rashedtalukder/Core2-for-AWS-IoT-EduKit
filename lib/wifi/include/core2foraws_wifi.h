@@ -451,11 +451,17 @@ esp_err_t core2foraws_wifi_reset( void );
  * @ref core2foraws_common_spi_semaphore. Taking the SPI semaphore around an
  * LVGL call that can trigger a refresh deadlocks against the display flush.
  *
+ * @note The payload only exists while a provisioning session is live. Call
+ * @ref core2foraws_wifi_start first; before that the service name and proof of
+ * possession have not been generated and this returns `ESP_ERR_INVALID_STATE`.
+ *
  * @param[out] wifi_prov_str The pointer to the wifi provisioning string.
  * @return 
  *  - [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK      : Success
- *  - ESP_FAIL    : Failed to retrieve the Wi-Fi provisioning string
+ *  - ESP_OK                : Success
+ *  - ESP_ERR_INVALID_ARG   : @p wifi_prov_str is `NULL`
+ *  - ESP_ERR_INVALID_STATE : No provisioning session; call @ref core2foraws_wifi_start first
+ *  - ESP_FAIL              : Failed to retrieve the Wi-Fi provisioning string
  */
 /* @[declare_core2foraws_wifi_prov_str_get] */
 esp_err_t core2foraws_wifi_prov_str_get( char *wifi_prov_str );
