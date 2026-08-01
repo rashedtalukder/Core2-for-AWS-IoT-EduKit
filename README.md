@@ -57,7 +57,9 @@ Each buffer needs a single **contiguous** DMA-capable block. Contiguity, not tot
 
 Call `core2foraws_common_heap_report()` after `core2foraws_init()` and again once the network is up to measure current free memory, the minimum-ever free watermark, and the largest contiguous block. Validate any change to the draw buffer height against those numbers.
 
-The 20-line default was validated on hardware with 48 display, audio, storage, concurrency, pressure, and soak tests. Compared with 40 lines, it reclaimed about 25 KB of internal DMA memory while the 60-flush stress test changed from 949 ms to 983 ms. The validated low-water marks were 128,823 bytes of internal DRAM and 99,811 bytes of DMA-capable DRAM, with a 110,592-byte largest DMA block.
+The 20-line default was validated on hardware with 72 tests spanning display, audio, storage durability, fault injection, connectivity, concurrency, memory pressure, and soak. Compared with 40 lines it reclaimed about 25 KB of internal DMA memory, while the 60-flush stress test moved from 949 ms to 983 ms.
+
+Measure with the radios up. With the Wi-Fi and BLE stacks brought up, the low-water marks were 85,887 bytes of internal DRAM and 80,479 bytes of DMA-capable DRAM, against a 110,592-byte largest contiguous block. The same suite without the radios reports roughly 128 KB and 100 KB — comfortable numbers that hide the real budget, which is why a bench measurement is not evidence that the display will come up in the field.
 
 If you need more internal DRAM, apply these in your application's `sdkconfig` (a component cannot set them for you), roughly in order of payoff:
 

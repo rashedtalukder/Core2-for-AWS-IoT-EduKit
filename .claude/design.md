@@ -423,9 +423,10 @@ modules. When BSP support is disabled, only `core2foraws_init()` remains exposed
   after repeated failures. Connection state is published through a FreeRTOS event
   group. Initialization returns NVS/network errors without erasing the default
   NVS partition; `core2foraws_wifi_reset()` clears only persistent Wi-Fi state.
-  Start is idempotent, QR rendering is auxiliary after provisioning starts, and
-  deinit stops an active provisioning manager and radio before destroying the
-  netif/event resources.
+  Start is idempotent. The provisioning payload only exists while a session is
+  live, so `core2foraws_wifi_prov_str_get()` returns `ESP_ERR_INVALID_STATE`
+  until `core2foraws_wifi_start()` has run. Deinit stops an active provisioning
+  manager and radio before destroying the netif/event resources.
 - **expports** serializes mode changes and I/O against reset. Port C UART reads
   require destination capacity and never remove more bytes than fit. Port B
   rolls back partial ADC/UART allocation failures and supports raw ADC reads
