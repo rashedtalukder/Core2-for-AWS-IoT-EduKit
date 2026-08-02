@@ -24,18 +24,19 @@ git clone -b BSP-dev git@github.com:m5stack/Core2-for-AWS-IoT-Kit.git
 
 It is recommended to use the [project template](https://github.com/m5stack/Project_Template-Core2_for_AWS) instead of the BSP directly. The project template contains the application configuration and managed dependencies required by the Core2 for AWS IoT Kit.
 
-This repository is an ESP-IDF component, not a standalone application. The component is built and tested with [PlatformIO](https://github.com/platformio/platform-espressif32) `espressif32` v7.0.1, which bundles ESP-IDF v6.0.1. This component does not contain its own `platformio.ini`. Follow the [AWS IoT Kit — Getting Started](https://aws-iot-kit-docs.m5stack.com/en/getting-started/kit) tutorial for environment setup.
+This repository is an ESP-IDF component, not a standalone application. The component is built and tested with ESP-IDF v5.3 and v6.0; consuming-application integration is validated with [PlatformIO](https://github.com/platformio/platform-espressif32) `espressif32` v6.9 and v7.0.1 (ESP-IDF v6.0.1). This component does not contain its own `platformio.ini`. Follow the [AWS IoT Kit — Getting Started](https://aws-iot-kit-docs.m5stack.com/en/getting-started/kit) tutorial for environment setup.
 
 `core2foraws_init()` attempts every enabled automatic module after the internal I2C foundation is available and returns `ESP_FAIL` if one or more modules fail. Applications that need module-specific recovery can initialize those modules independently. Wi-Fi initialization returns NVS and network errors without erasing the default NVS partition; `core2foraws_wifi_reset()` clears only persistent Wi-Fi configuration.
 
 The master `SOFTWARE_BSP_SUPPORT` Kconfig option controls the common layer and all hardware modules. When it is disabled, common APIs are not compiled or exposed and `core2foraws_init()` is a successful no-op.
 
-The internal I2C bus is a permanent, recursively locked board resource. External Port A I2C can host multiple managed devices and can be closed/reopened independently. Display and SD share one common-owned SPI2 bus; SD transfers are chunked so large file operations do not monopolize display refresh.
+The internal I2C bus is a permanent, recursively locked board resource. The ATECC608 wake token, including its expected address-zero NACK, is handled through that shared bus rather than by taking direct GPIO ownership. External Port A I2C can host multiple managed devices and can be closed/reopened independently. Display and SD share one common-owned SPI2 bus; SD transfers are chunked so large file operations do not monopolize display refresh.
 
 API safety notes for this revision:
 
 - Use `core2foraws_display_touch_data_get()` instead of reading the raw touch handle; it participates in internal-I2C serialization.
 - Physical touch reads are interrupt-gated and use a BSP-owned 100 ms transport timeout, preventing an unresponsive controller from monopolizing the shared internal-I2C bus.
+- ATECC608 signatures are fixed 64-byte raw P-256 `R || S` values; verification rejects encoded or differently sized signatures with `ESP_ERR_INVALID_SIZE`.
 - `core2foraws_expports_uart_read()` requires the destination buffer capacity before the output byte count.
 - Audio I/O is bounded by `AUDIO_IO_TIMEOUT_MS` and serialized against speaker/microphone disable.
 - `core2foraws_display_deinit()` releases display, touch, and LVGL resources while leaving shared SPI2 available to SD.

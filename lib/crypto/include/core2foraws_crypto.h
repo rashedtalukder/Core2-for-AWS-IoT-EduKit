@@ -46,7 +46,7 @@ extern "C" {
 /* @[declare_core2foraws_crypto_pub_key_size] */
 
 /**
- * @brief The maximum crypto signature size supported by the library
+ * @brief The ATECC608 raw P-256 signature size.
  *
  * @note ATECC608 P-256 signatures are returned as a raw 64-byte R || S value.
  */
@@ -121,8 +121,9 @@ esp_err_t core2foraws_crypto_init( void );
  * of the secure element.
  * 
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK    : Success
- *  - ESP_FAIL  : Failed to get the serial over the I2C bus
+ *  - ESP_OK              : Success
+ *  - ESP_ERR_INVALID_ARG : @p serial_number is NULL
+ *  - ESP_FAIL            : Failed to get the serial over the I2C bus
  */
 /* @[declare_core2foraws_crypto_serial_get] */
 esp_err_t core2foraws_crypto_serial_get( char *serial_number );
@@ -169,19 +170,22 @@ esp_err_t core2foraws_crypto_serial_get( char *serial_number );
  * @param[out] public_key The preprovisioned public key.
  * 
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK    : Success
- *  - ESP_FAIL  : Failed to get the device public key over the I2C bus
+ *  - ESP_OK              : Success
+ *  - ESP_ERR_INVALID_ARG : @p public_key is NULL
+ *  - ESP_FAIL            : Failed to get or encode the device public key
  */
 /* @[declare_core2foraws_crypto_pubkey_base64_get] */
 esp_err_t core2foraws_crypto_pubkey_base64_get( char *public_key );
 /* @[declare_core2foraws_crypto_pubkey_base64_get] */
 
 /**
- * @brief Signs the provided message with the pre-provisioned 
- * private key using ECDSA.
+ * @brief Signs a SHA-256 digest with the pre-provisioned private key using
+ * ECDSA.
  * 
- * The maximum length of the signature is defined in the macro @ref
- * CRYPTO_MAX_SIGNATURE_SIZE.
+ * @p message must point to a 32-byte SHA-256 digest. On success, @p signature
+ * contains a raw, fixed-size P-256 `R || S` value and @p signature_length is
+ * set to @ref CRYPTO_MAX_SIGNATURE_SIZE. After argument validation, a signing
+ * failure leaves @p signature_length set to zero.
  *  
  * @note It might take a little time to wake the secure element and
  * generate a signature.
@@ -216,7 +220,7 @@ esp_err_t core2foraws_crypto_pubkey_base64_get( char *public_key );
  *      esp_err_t err = core2foraws_crypto_sha256_sign( hash, sig, &sig_len );
  *      if ( err == ESP_OK)
  *      {
- *          ESP_LOGI( TAG, "\tSignature: %u", ( unsigned int )sig );
+ *          ESP_LOGI( TAG, "\tSignature length: %u", ( unsigned int )sig_len );
  *      }
  *      
  *      bool is_verified = false;
@@ -228,24 +232,28 @@ esp_err_t core2foraws_crypto_pubkey_base64_get( char *public_key );
  *  }
  * @endcode
  * 
- * @param[in] message Pointer to the message to sign.
- * @param[out] signature The ECDSA signature.
- * @param[out] signature_length The length of the signature.
+ * @param[in] message Pointer to the 32-byte SHA-256 digest to sign.
+ * @param[out] signature Buffer of at least @ref CRYPTO_MAX_SIGNATURE_SIZE
+ * bytes for the raw ECDSA signature.
+ * @param[out] signature_length Raw signature length on success, or zero if the
+ * signing operation fails after argument validation.
  * 
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK    : Success
- *  - ESP_FAIL  : Failed to get sign using the secure element
+ *  - ESP_OK              : Success
+ *  - ESP_ERR_INVALID_ARG : An input or output pointer is NULL
+ *  - ESP_FAIL            : The secure element failed to sign the digest
  */
 /* @[declare_core2foraws_crypto_sha256_sign] */
 esp_err_t core2foraws_crypto_sha256_sign( const unsigned char *message, uint8_t *signature, size_t *signature_length );
 /* @[declare_core2foraws_crypto_sha256_sign] */
 
 /**
- * @brief Verifies if the ECDSA signature is valid for the provided 
- * message.
+ * @brief Verifies a raw ECDSA signature for a SHA-256 digest.
  * 
- * The maximum length of the signature is defined in the macro @ref
- * CRYPTO_MAX_SIGNATURE_SIZE.
+ * @p message must point to a 32-byte SHA-256 digest. @p signature must contain
+ * exactly @ref CRYPTO_MAX_SIGNATURE_SIZE bytes in raw `R || S` format. A
+ * completed verification returns `ESP_OK`; inspect @p verified to distinguish
+ * a valid signature from an invalid one.
  *  
  * @note It might take a little time to wake the secure element and
  * generate a signature.
@@ -280,7 +288,7 @@ esp_err_t core2foraws_crypto_sha256_sign( const unsigned char *message, uint8_t 
  *      esp_err_t err = core2foraws_crypto_sha256_sign( hash, sig, &sig_len );
  *      if ( err == ESP_OK)
  *      {
- *          ESP_LOGI( TAG, "\tSignature: %u", ( unsigned int )sig );
+ *          ESP_LOGI( TAG, "\tSignature length: %u", ( unsigned int )sig_len );
  *      }
  *      
  *      bool is_verified = false;
@@ -292,14 +300,18 @@ esp_err_t core2foraws_crypto_sha256_sign( const unsigned char *message, uint8_t 
  *  }
  * @endcode
  * 
- * @param[in] message The message to sign.
- * @param[in] signature The ECDSA signature.
- * @param[in] signature_length The length of the signature.
- * @param[out] verified The boolean if the signature validates the message.
+ * @param[in] message Pointer to the 32-byte SHA-256 digest to verify.
+ * @param[in] signature Raw `R || S` ECDSA signature.
+ * @param[in] signature_length Signature length; must equal
+ * @ref CRYPTO_MAX_SIGNATURE_SIZE.
+ * @param[out] verified Set to true only when the signature validates the
+ * digest.
  * 
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK    : Success
- *  - ESP_FAIL  : Failed to get verify certificate using the secure element
+ *  - ESP_OK               : Verification completed; inspect @p verified
+ *  - ESP_ERR_INVALID_ARG  : An input or output pointer is NULL
+ *  - ESP_ERR_INVALID_SIZE : @p signature_length is not the required raw size
+ *  - ESP_FAIL             : The secure element could not perform verification
  */
 /* @[declare_core2foraws_crypto_sha256_verify] */
 esp_err_t core2foraws_crypto_sha256_verify( const unsigned char *message, const uint8_t *signature, const size_t signature_length, bool *verified );

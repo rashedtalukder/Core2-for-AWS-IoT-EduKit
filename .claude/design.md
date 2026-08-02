@@ -66,7 +66,7 @@ graph TD
     B --> C["BSP API Modules<br/>power · display · audio · motion · rtc ·<br/>crypto · rgb_led · button · sd · wifi · expports"]
     C --> D1["Device Drivers<br/>axp192.c · mpu6886.c · BM8563 · SK6812 · NS4168/SPM1423"]
     C --> D2["Common HAL<br/>core2foraws_i2c (dual bus + per-bus mutex) ·<br/>shared SPI semaphore · common_error()"]
-    C --> E["3rd-party components<br/>esp_lcd · LVGL 9 · esp_lvgl_port ·<br/>esp-cryptoauthlib · mbedTLS · wifi_provisioning"]
+    C --> E["3rd-party components<br/>esp_lcd · LVGL 9 · esp_lvgl_port ·<br/>esp-cryptoauthlib · mbedTLS · network_provisioning"]
     D1 --> F["ESP-IDF Driver Layer<br/>i2c_master · i2s · rmt · spi_master · esp_adc · dac · uart · gpio"]
     D2 --> F
     E --> F
@@ -121,7 +121,7 @@ graph TD
     S4["4. Buttons<br/>(virtual touch zones)"] --> S5
     S5["5. Motion / MPU6886 IMU"] --> S6
     S6["6. RTC / BM8563"] --> S7
-    S7["7. Crypto / ATECC608<br/>(last I2C device — wake timing)"] --> S8
+    S7["7. Crypto / ATECC608<br/>(shared-bus wake token)"] --> S8
     S8["8. RGB LED chain<br/>(needs 5V boost)"] --> S9
     S9["9. Wi-Fi stack setup<br/>(network resources, last)"]
 ```
@@ -135,9 +135,11 @@ graph TD
   the SD card, the vibration motor, and the 5V boost for the LED strip. It also
   drives the shared LCD/touch reset line. Bringing it up early means downstream
   peripherals have stable power before they are probed.
-- **Crypto (ATECC608) comes after the other I2C devices.** The secure element has
-  a finicky "wake" pulse; doing it last keeps that special handling out of the
-  way of simpler devices.
+- **Crypto (ATECC608) comes after the other I2C devices.** Each secure-element
+  command starts with an I2C general-call wake token. The common I2C wrapper
+  serializes that token with every other internal-bus transaction and treats
+  the secure element's expected wake-token NACK as success; init order alone is
+  not relied on for runtime bus safety.
 - **Later failures are aggregated.** After the I2C bus, each step's result is
   accumulated (`ret |= err`) and normalized to `ESP_FAIL`. A bad peripheral
   does not stop later modules from being attempted. The logs identify each
@@ -231,13 +233,14 @@ graph LR
 - Every wrapper read/write recursively takes bus ownership. Multi-transfer
   register updates can take ownership once and call wrapper APIs inside it
   without deadlock; AXP192 and BM8563 read-modify-write sequences use this.
-- The raw bus handle is an escape hatch for `esp_lcd_touch`. The BSP touch read
-  function explicitly takes internal-bus ownership around both panel-I/O read
-  and coordinate extraction, so LVGL, buttons, and the ATECC wake pulse cannot
-  drive the same lines concurrently. Display teardown takes that same ownership
-  before deleting the FT6336 panel-I/O device and validates the touch handle
-  only after acquiring it, preventing the application-lifetime button task from
-  racing a display deinit/reinit cycle.
+- The BSP supplies `esp_lcd_touch` with a small panel-I/O adapter backed by the
+  common I2C API, avoiding a second unmanaged device path on ESP-IDF v5.3 and
+  v6.0. Touch reads explicitly take internal-bus ownership around both panel-I/O
+  access and coordinate extraction, so LVGL, buttons, and the ATECC wake token
+  cannot drive the same lines concurrently. Display teardown takes that same
+  ownership before deleting the FT6336 panel-I/O device and validates the touch
+  handle only after acquiring it, preventing the application-lifetime button
+  task from racing a display deinit/reinit cycle.
 - The internal bus is permanent because fixed board modules retain handles. The
   external bus can close and reopen; close removes every managed accessory.
 
@@ -393,10 +396,10 @@ modules. When BSP support is disabled, only `core2foraws_init()` remains exposed
 | **audio** | Speaker playback + mic capture (mutually exclusive) | raw I2S (`i2s_std`/`i2s_pdm`) |
 | **motion** | Accelerometer, gyroscope, temperature | custom `mpu6886.c` |
 | **rtc** | Real-time clock + alarm (UTC stored, local via `CONFIG_TIME_ZONE`) | custom BM8563 |
-| **crypto** | Device serial, public key, sign/verify (AWS IoT identity) | `esp-cryptoauthlib` + mbedTLS |
+| **crypto** | Device serial, public key, raw P-256 sign/verify (AWS IoT identity) | `esp-cryptoauthlib` |
 | **rgb_led** | 10-pixel SK6812 strip, per-pixel / per-side color, brightness | raw RMT TX |
 | **sd** | FAT filesystem on the microSD card (SPI mode) | `esp_vfs_fat` + `sdmmc` |
-| **wifi** | BLE-based Wi-Fi provisioning, connect/reconnect, NVS credential storage | `wifi_provisioning` |
+| **wifi** | BLE-based Wi-Fi provisioning, connect/reconnect, NVS credential storage | `network_provisioning` |
 | **expports** | Port A (I2C), Port B (ADC/DAC), Port C (UART2), raw GPIO | `gpio`, `uart`, `esp_adc`, `dac` |
 
 ### Notable per-module design choices
@@ -413,7 +416,13 @@ modules. When BSP support is disabled, only `core2foraws_init()` remains exposed
   implements them with the common I2C API. Initialization copies the library
   interface configuration and pins it to the board's 8-bit address `0x6A`
   (7-bit `0x35`) at 100 kHz, so consuming-project cryptoauthlib Kconfig cannot
-  redirect this fixed board device.
+  redirect this fixed board device. Wake operations use a managed address-zero
+  I2C device to send the general-call token; the expected NACK is normalized to
+  success while real transport or locking failures remain errors. Signatures
+  use CryptoAuthLib directly and are fixed 64-byte raw `R || S` values rather
+  than mbedTLS-encoded signatures. The HAL accepts the current `address` field
+  and the deprecated `slave_address` field selected by CryptoAuthLib's
+  `ATCA_ENABLE_DEPRECATED` compatibility macro.
 - **rgb_led** treats the strip as **one device with 10 pixels** (not 10 separate
   LEDs), driven by the RMT peripheral with precise SK6812 timing. The strip is
   powered from 5 V, so it only works after the PMU enables the boost rail. A
@@ -575,10 +584,12 @@ less.
   common layer owns the shared SPI2 bus regardless of whether display or SD is
   selected. True dependency pruning requires packaging modules as separate
   ESP-IDF components and is intentionally not attempted as an in-place tweak.
-- **Managed dependencies** ([idf_component.yml](../idf_component.yml)):
-  `esp-cryptoauthlib`, LVGL 9, `esp_lvgl_port`, `esp_lcd_touch` (+ FT5x06
-  compatible driver for FT6336), `esp_lcd_ili9341` (used for the
-  ILI9342C-compatible command set), and `qrcode`.
+- **Managed dependencies** ([idf_component.yml](../idf_component.yml)) are
+  pinned to the validated revisions: `esp-cryptoauthlib` `3.7.9~2`,
+  `network_provisioning` `1.2.4`, `qrcode` `0.2.0`, LVGL `9.5.0`,
+  `esp_lvgl_port` `2.8.0~1`, `esp_lcd_touch` `1.2.1`, the FT5x06-compatible
+  touch driver `1.1.0~2` for FT6336, and `esp_lcd_ili9341` `2.0.2` for the
+  ILI9342C-compatible command set.
 
 ### 9.2 Verification strategy
 
