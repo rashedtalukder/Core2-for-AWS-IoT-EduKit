@@ -131,25 +131,16 @@ static esp_err_t _touch_io_tx( esp_lcd_panel_io_t *io, int command,
                                const void *parameters, size_t parameter_size )
 {
     if( io == NULL || command < 0 || command > UINT8_MAX ||
+        parameter_size > UINT16_MAX ||
         ( parameter_size > 0 && parameters == NULL ) )
     {
         return ESP_ERR_INVALID_ARG;
     }
 
     core2foraws_touch_io_t *touch_io = ( core2foraws_touch_io_t * )io;
-    uint8_t register_address = ( uint8_t )command;
-    i2c_master_transmit_multi_buffer_info_t buffers[] = {
-        { .write_buffer = &register_address, .buffer_size = 1 },
-        { .write_buffer = parameters, .buffer_size = parameter_size },
-    };
-    esp_err_t err = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
-    if( err != ESP_OK ) return err;
-
-    err = i2c_master_multi_buffer_transmit( touch_io->device, buffers,
-        sizeof( buffers ) / sizeof( buffers[ 0 ] ),
-        TOUCH_I2C_XFER_TIMEOUT_MS );
-    esp_err_t unlock_err = core2foraws_i2c_unlock( COMMON_I2C_INTERNAL );
-    return err != ESP_OK ? err : unlock_err;
+    return core2foraws_i2c_write( COMMON_I2C_INTERNAL, touch_io->device,
+                                  ( uint8_t )command, parameters,
+                                  ( uint16_t )parameter_size );
 }
 
 static esp_err_t _touch_io_tx_color( esp_lcd_panel_io_t *io, int command,
