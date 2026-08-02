@@ -65,12 +65,11 @@ extern "C" {
 
 /**
  * @brief Initializes the ATECC608 Trust&GO driver on the I2C bus.
- * 
- * @warning This function cannot be used if ESP_TLS is used.
- * ESP_TLS calls it's own initialization function which will 
- * result in an abort.
- * @note The core2foraws_init() calls this function
- * when the hardware feature is enabled.
+ *
+ * @note This driver uses CryptoAuthLib directly and does not install mbedTLS
+ * ALT hooks, so it can be initialized alongside ESP-TLS.
+ * @note core2foraws_init() calls this function when the hardware feature is
+ * enabled.
  * 
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK    : Success

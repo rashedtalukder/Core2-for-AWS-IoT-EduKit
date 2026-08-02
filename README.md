@@ -24,7 +24,7 @@ git clone -b BSP-dev git@github.com:m5stack/Core2-for-AWS-IoT-Kit.git
 
 It is recommended to use the [project template](https://github.com/m5stack/Project_Template-Core2_for_AWS) instead of the BSP directly. The project template contains the application configuration and managed dependencies required by the Core2 for AWS IoT Kit.
 
-This repository is an ESP-IDF component, not a standalone application. The component is built and tested with ESP-IDF v5.3 and v6.0; consuming-application integration is validated with [PlatformIO](https://github.com/platformio/platform-espressif32) `espressif32` v6.9 and v7.0.1 (ESP-IDF v6.0.1). This component does not contain its own `platformio.ini`. Follow the [AWS IoT Kit — Getting Started](https://aws-iot-kit-docs.m5stack.com/en/getting-started/kit) tutorial for environment setup.
+This repository is an ESP-IDF component, not a standalone application. The component is built and tested with ESP-IDF v5.3 and v6.0; consuming-application integration is validated with [PlatformIO](https://github.com/platformio/platform-espressif32) `espressif32` v6.9 (ESP-IDF v5.3.1) and v7.0.1 (ESP-IDF v6.0.1). This component does not contain its own `platformio.ini`. Follow the [AWS IoT Kit — Getting Started](https://aws-iot-kit-docs.m5stack.com/en/getting-started/kit) tutorial for environment setup.
 
 `core2foraws_init()` attempts every enabled automatic module after the internal I2C foundation is available and returns `ESP_FAIL` if one or more modules fail. Applications that need module-specific recovery can initialize those modules independently. Wi-Fi initialization returns NVS and network errors without erasing the default NVS partition; `core2foraws_wifi_reset()` clears only persistent Wi-Fi configuration.
 
@@ -72,8 +72,8 @@ If you need more internal DRAM, apply these in your application's `sdkconfig` (a
 | `CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED=y` | Frees the Bluetooth controller's reserved DRAM when credentials already exist. BLE is then unavailable until reboot. |
 | `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096` | Routes general heap allocations ≥ 4 KB to PSRAM by default (lower than the 16 KB IDF default). |
 | `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y` | Releases the large TLS handshake buffers after each handshake completes, lowering peak internal usage. |
-| `CONFIG_ESP32_WIFI_TX_BUFFER=dynamic` | Replaces static TX buffers with dynamic allocation. |
-| `CONFIG_ESP32_WIFI_STATIC_RX_BUFFER_NUM` (lower it) | Each static RX buffer costs ~1.6 KB of internal DRAM. |
+| `CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM` (lower it cautiously) | Each static TX buffer costs ~1.6 KB of internal DRAM. IDF 6 requires static TX while `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`; dynamic TX cannot be combined with that larger PSRAM saving. |
+| `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM` (lower it) | Each static RX buffer costs ~1.6 KB of internal DRAM. |
 | `CONFIG_CORE2FORAWS_LCD_DRAW_BUF_LINES` (lower it) | Last resort — costs display throughput. |
 
 On an ESP32-D0WDQ6-V3 with the display initialized, enabling `CONFIG_LV_USE_CLIB_MALLOC` together with `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096` raised the largest **contiguous** DMA-capable block from ~28 KB to ~86 KB (roughly 3×) — enough headroom for the draw buffers to survive display re-init while Wi-Fi and BLE are running.

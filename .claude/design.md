@@ -558,7 +558,7 @@ less.
 | Layer | Supported environment | How it is validated |
 | --- | --- | --- |
 | BSP component | ESP-IDF v5.3 and v6.0 | Built as a component inside a consuming ESP-IDF application |
-| Application integration | PlatformIO `espressif32` v6.9 and v7.0 | Built by consuming applications such as the project template; this repository does not contain `platformio.ini` |
+| Application integration | PlatformIO `espressif32` v6.9 (ESP-IDF v5.3.1) and v7.0.1 (ESP-IDF v6.0.1) | Built by consuming applications such as the project template; this repository does not contain `platformio.ini` |
 | ESP-IDF v4.x | Not supported | Some legacy conditional branches remain, but v5-only driver APIs and component names define the actual minimum |
 
 - **Component, not standalone application:** this repository has no top-level
@@ -620,7 +620,7 @@ DMA buffers, or lifecycle ownership require the corresponding hardware test.
 | Common layer follows master BSP switch | Accepted: a disabled BSP build omits all common sources and headers; the umbrella initializer returns `ESP_OK` before referencing common code. |
 | Internal/external I2C ownership | Accepted: separate state objects, static recursive locks, managed/ref-counted device handles, permanent internal lifetime, and reopenable external lifetime. |
 | LCD/SD arbitration | Accepted: common owns SPI2; one binary semaphore spans asynchronous LCD DMA and bounded SD chunks. |
-| Display memory | Accepted: two 40-line buffers in internal DMA RAM; 50 lines is recommended only after validating DRAM headroom. |
+| Display memory | Accepted: two 20-line buffers in internal DMA RAM by default; larger buffers require validating DMA-capable DRAM headroom with the radios active. |
 | Audio integration | Raw `i2s_std`/`i2s_pdm` retained for now; `esp_codec_dev` remains a future maintenance option but cannot remove the GPIO0 mutual-exclusion constraint. |
 | Secure-element identity | BSP code, APIs, and documentation use the canonical component name `ATECC608`. Its board contract is the internal I2C bus at 7-bit address `0x35` and 100 kHz. |
 
