@@ -17,8 +17,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "driver/i2c_master.h"
-#include "driver/gpio.h"
-#include "esp_rom_sys.h"
 #include "cryptoauthlib.h"
 
 #include "core2foraws_common.h"
@@ -26,44 +24,35 @@
 
 static const char *TAG = "ATECC608_HAL";
 
-/* SDA pin for the internal I2C bus — must match core2foraws_i2c.c */
-#define ATECC_SDA_PIN   GPIO_NUM_21
-
 static i2c_master_dev_handle_t _atecc_dev = NULL;
+static i2c_master_dev_handle_t _atecc_wake_dev = NULL;
 
 /**
- * @brief Drive the ATECC608 wake pulse on SDA under the shared-bus lock.
+ * @brief Send the ATECC608 I2C general-call wake token.
  *
- * The wake pulse manipulates SDA directly through GPIO rather than the
- * I2C driver, so it must hold the internal-bus lock for the duration of
- * the pulse. The internal I2C bus is shared with the AXP192, BM8563,
- * touch panel, and MPU6886; without the lock the 80 µs SDA-low pulse
- * would corrupt a concurrent transaction to one of those devices.
+ * CryptoAuthLib's standard I2C wake writes to address 0x00. The secure
+ * element wakes from the resulting low interval and intentionally NACKs the
+ * transfer. Keeping the wake inside the I2C driver preserves its GPIO routing
+ * and serializes the token with every other device on the shared bus.
  */
-static esp_err_t _atecc_wake_pulse( void )
+static esp_err_t _atecc_wake_token( void )
 {
-    esp_err_t err = core2foraws_i2c_lock( CORE2FORAWS_I2C_INTERNAL );
-    if( err != ESP_OK )
+    if( _atecc_wake_dev == NULL )
     {
-        return err;
+        return ESP_ERR_INVALID_STATE;
     }
-    gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_OUTPUT_OD );
-    gpio_set_level( ATECC_SDA_PIN, 0 );
-    esp_rom_delay_us( 80 );
-    gpio_set_level( ATECC_SDA_PIN, 1 );
-    /* Restore SDA to I2C peripheral control */
-    gpio_set_direction( ATECC_SDA_PIN, GPIO_MODE_INPUT_OUTPUT_OD );
-    return core2foraws_i2c_unlock( CORE2FORAWS_I2C_INTERNAL );
+
+    const uint8_t wake_token = 0;
+    esp_err_t err = core2foraws_i2c_write( CORE2FORAWS_I2C_INTERNAL,
+        _atecc_wake_dev, CORE2FORAWS_I2C_NO_REG, &wake_token, 1 );
+    return err == ESP_OK || err == ESP_ERR_INVALID_RESPONSE ? ESP_OK : err;
 }
 
 /**
  * @brief Send the ATECC608 I2C wake pulse and verify the response.
  *
- * The ATECC608 wakes when SDA is held low for ≥60 µs (tWLO).  Rather
- * than issuing a general-call write to address 0x00 through the I2C
- * driver (which logs a spurious NACK error), we briefly switch SDA to
- * GPIO output mode, hold it low, then restore it to open-drain mode
- * for the I2C peripheral.
+ * The ATECC608 wakes when SDA is held low for ≥60 µs (tWLO). At 100 kHz,
+ * transmitting the general-call address and wake byte supplies that interval.
  */
 static ATCA_STATUS _atecc_wake( ATCAIface iface )
 {
@@ -78,9 +67,7 @@ static ATCA_STATUS _atecc_wake( ATCAIface iface )
         return ATCA_BAD_PARAM;
     }
 
-    /* Drive SDA low for ≥60 µs to wake the ATECC608, serialized against
-     * other devices sharing the internal I2C bus */
-    if( _atecc_wake_pulse() != ESP_OK )
+    if( _atecc_wake_token() != ESP_OK )
     {
         return ATCA_COMM_FAIL;
     }
@@ -140,6 +127,17 @@ ATCA_STATUS __wrap_hal_i2c_init( ATCAIface iface, ATCAIfaceCfg *cfg )
         return ATCA_COMM_FAIL;
     }
 
+    err = core2foraws_i2c_device_add( CORE2FORAWS_I2C_INTERNAL, 0,
+        cfg->atcai2c.baud, &_atecc_wake_dev );
+    if( err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Failed to add ATECC608 wake device: %s",
+                  esp_err_to_name( err ) );
+        ( void )core2foraws_i2c_device_remove( _atecc_dev );
+        _atecc_dev = NULL;
+        return ATCA_COMM_FAIL;
+    }
+
     return ATCA_SUCCESS;
 }
 
@@ -163,9 +161,7 @@ ATCA_STATUS __wrap_hal_i2c_send( ATCAIface iface, uint8_t word_address,
         uint16_t cur_addr = ATCA_IFACECFG_I2C_ADDRESS( iface->mIfaceCFG );
         if( cur_addr == 0x00 )
         {
-            /* Wake pulse — drive SDA low via GPIO instead of I2C driver,
-             * serialized against other devices on the shared internal bus */
-            return _atecc_wake_pulse() == ESP_OK ? ATCA_SUCCESS
+            return _atecc_wake_token() == ESP_OK ? ATCA_SUCCESS
                                                   : ATCA_COMM_FAIL;
         }
     }
