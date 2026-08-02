@@ -592,7 +592,13 @@ esp_err_t core2foraws_display_init( void )
         return ESP_OK;
     }
 
-    esp_err_t err = core2foraws_common_spi_bus_init();
+    esp_err_t err = _display_draw_buffer_check();
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
+    err = core2foraws_common_spi_bus_init();
     if( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to create shared SPI semaphore: 0x%x", err );
@@ -637,13 +643,6 @@ esp_err_t core2foraws_display_init( void )
     _lvgl_initialized = true;
 
     /* ── 4. Add display to LVGL port ── */
-    err = _display_draw_buffer_check();
-    if( err != ESP_OK )
-    {
-        (void)_display_cleanup();
-        return err;
-    }
-
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle     = _io_handle,
         .panel_handle  = _panel_handle,

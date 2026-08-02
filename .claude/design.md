@@ -31,9 +31,9 @@ same as the standard M5Stack Core2 by itself:
   hardware. The BSP encodes the *correct* wiring so you never have to guess.
 
 **What it is:** a curated set of drivers + a single `core2foraws_init()` entry
-point, built and tested as an ESP-IDF v5.3 component. PlatformIO is supported
-at the consuming-application level rather than by this component repository
-directly.
+point, built and tested as an ESP-IDF v5.3 and v6.0 component. PlatformIO is
+supported at the consuming-application level rather than by this component
+repository directly.
 
 **What it is not:** a general-purpose ESP32 devkit library. Do not assume
 standard ESP32 devkit pin defaults — this board reuses many pins for specific
@@ -548,8 +548,8 @@ less.
 
 | Layer | Supported environment | How it is validated |
 | --- | --- | --- |
-| BSP component | ESP-IDF v5.3 | Built as a component inside a consuming ESP-IDF application |
-| Application integration | PlatformIO `espressif32` v6.9+ | Built by consuming applications such as the project template; this repository does not contain `platformio.ini` |
+| BSP component | ESP-IDF v5.3 and v6.0 | Built as a component inside a consuming ESP-IDF application |
+| Application integration | PlatformIO `espressif32` v6.9 and v7.0 | Built by consuming applications such as the project template; this repository does not contain `platformio.ini` |
 | ESP-IDF v4.x | Not supported | Some legacy conditional branches remain, but v5-only driver APIs and component names define the actual minimum |
 
 - **Component, not standalone application:** this repository has no top-level
@@ -585,7 +585,8 @@ less.
 Every change should use the narrowest relevant checks first, then cover the
 integration combinations affected by the change:
 
-1. Build a consuming ESP-IDF v5.3 application with the default feature set.
+1. Build consuming ESP-IDF v5.3 and v6.0 applications with the default feature
+  set.
 2. Build with `SOFTWARE_BSP_SUPPORT=n` to verify the umbrella no-op path links
   without any common or hardware source.
 3. Build affected feature combinations, especially display+SD, Wi-Fi without
