@@ -22,6 +22,8 @@ set( CORE2FORAWS_REQUIRES               ${ADC_COMPONENT}
                                         "esp_driver_i2s"
                                         "esp_driver_rmt"
                                         "esp_driver_spi"
+                                        "esp_driver_uart"
+                                        "esp_driver_dac"
                                         "esp_timer"
                                         "esp-cryptoauthlib"
                                         "fatfs"
@@ -30,7 +32,7 @@ set( CORE2FORAWS_PRIV_INCLUDEDIRS       )
 set( CORE2FORAWS_PRIV_REQUIRES          "nvs_flash"
                                         "esp_wifi"
                                         "esp_event"
-                                        "wifi_provisioning"
+                                        "network_provisioning"
                                         )
 set( CORE2FORAWS_EXCLUDE_SRCS           )
 set( CORE2FORAWS_LIB                    "${COMPONENT_DIR}/lib" )

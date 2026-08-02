@@ -34,9 +34,11 @@
 
 #include <sdkconfig.h>
 #include <driver/gpio.h>
+#include <driver/i2c_master.h>
 #include <driver/spi_master.h>
 #include <esp_check.h>
 #include <esp_lcd_panel_io.h>
+#include <esp_lcd_panel_io_interface.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_ili9341.h>
 #include <esp_lcd_touch_ft5x06.h>
@@ -80,6 +82,7 @@ _Static_assert( LCD_DRAW_BUF_BYTES <= CORE2FORAWS_SPI_MAX_TRANSFER_BYTES,
 
 /* FT6336U touch controller on internal I2C bus */
 #define TOUCH_INT_GPIO      GPIO_NUM_39
+#define TOUCH_I2C_XFER_TIMEOUT_MS 100
 
 static const char *_TAG = "CORE2FORAWS_DISPLAY";
 
@@ -94,6 +97,115 @@ static esp_lcd_touch_handle_t    _touch_handle = NULL;
 static lv_indev_t               *_touch_indev = NULL;
 static bool                      _lvgl_initialized = false;
 static atomic_bool               _flush_holds_spi_lock;
+static atomic_bool               _touch_interrupt_pending;
+static atomic_bool               _touch_contact_active;
+
+typedef struct
+{
+    esp_lcd_panel_io_t base;
+    i2c_master_dev_handle_t device;
+} core2foraws_touch_io_t;
+
+static esp_err_t _touch_io_rx( esp_lcd_panel_io_t *io, int command,
+                               void *parameters, size_t parameter_size )
+{
+    if( io == NULL || command < 0 || command > UINT8_MAX ||
+        parameters == NULL || parameter_size == 0 )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    core2foraws_touch_io_t *touch_io = ( core2foraws_touch_io_t * )io;
+    uint8_t register_address = ( uint8_t )command;
+    esp_err_t err = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+    if( err != ESP_OK ) return err;
+
+    err = i2c_master_transmit_receive( touch_io->device,
+        &register_address, sizeof( register_address ), parameters,
+        parameter_size, TOUCH_I2C_XFER_TIMEOUT_MS );
+    esp_err_t unlock_err = core2foraws_i2c_unlock( COMMON_I2C_INTERNAL );
+    return err != ESP_OK ? err : unlock_err;
+}
+
+static esp_err_t _touch_io_tx( esp_lcd_panel_io_t *io, int command,
+                               const void *parameters, size_t parameter_size )
+{
+    if( io == NULL || command < 0 || command > UINT8_MAX ||
+        ( parameter_size > 0 && parameters == NULL ) )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    core2foraws_touch_io_t *touch_io = ( core2foraws_touch_io_t * )io;
+    uint8_t register_address = ( uint8_t )command;
+    i2c_master_transmit_multi_buffer_info_t buffers[] = {
+        { .write_buffer = &register_address, .buffer_size = 1 },
+        { .write_buffer = parameters, .buffer_size = parameter_size },
+    };
+    esp_err_t err = core2foraws_i2c_lock( COMMON_I2C_INTERNAL );
+    if( err != ESP_OK ) return err;
+
+    err = i2c_master_multi_buffer_transmit( touch_io->device, buffers,
+        sizeof( buffers ) / sizeof( buffers[ 0 ] ),
+        TOUCH_I2C_XFER_TIMEOUT_MS );
+    esp_err_t unlock_err = core2foraws_i2c_unlock( COMMON_I2C_INTERNAL );
+    return err != ESP_OK ? err : unlock_err;
+}
+
+static esp_err_t _touch_io_tx_color( esp_lcd_panel_io_t *io, int command,
+                                     const void *color, size_t color_size )
+{
+    ( void )io;
+    ( void )command;
+    ( void )color;
+    ( void )color_size;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+static esp_err_t _touch_io_register_callbacks(
+    esp_lcd_panel_io_handle_t io,
+    const esp_lcd_panel_io_callbacks_t *callbacks, void *user_context )
+{
+    ( void )io;
+    ( void )callbacks;
+    ( void )user_context;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+static esp_err_t _touch_io_del( esp_lcd_panel_io_t *io )
+{
+    if( io == NULL ) return ESP_ERR_INVALID_ARG;
+    core2foraws_touch_io_t *touch_io = ( core2foraws_touch_io_t * )io;
+    esp_err_t err = core2foraws_i2c_device_remove( touch_io->device );
+    if( err == ESP_OK ) free( touch_io );
+    return err;
+}
+
+static esp_err_t _touch_io_new(
+    const esp_lcd_panel_io_i2c_config_t *config,
+    esp_lcd_panel_io_handle_t *io_handle )
+{
+    if( config == NULL || io_handle == NULL ) return ESP_ERR_INVALID_ARG;
+
+    core2foraws_touch_io_t *touch_io = calloc( 1, sizeof( *touch_io ) );
+    if( touch_io == NULL ) return ESP_ERR_NO_MEM;
+
+    esp_err_t err = core2foraws_i2c_device_add( COMMON_I2C_INTERNAL,
+        config->dev_addr, config->scl_speed_hz, &touch_io->device );
+    if( err != ESP_OK )
+    {
+        free( touch_io );
+        return err;
+    }
+
+    touch_io->base.rx_param = _touch_io_rx;
+    touch_io->base.tx_param = _touch_io_tx;
+    touch_io->base.tx_color = _touch_io_tx_color;
+    touch_io->base.del = _touch_io_del;
+    touch_io->base.register_event_callbacks = _touch_io_register_callbacks;
+    *io_handle = &touch_io->base;
+    return ESP_OK;
+}
 
 /*
  * esp_lcd releases the SPI bus lock when it *queues* the colour transfer, not
@@ -215,6 +327,13 @@ static esp_err_t _display_touch_read( esp_lcd_touch_point_data_t *points,
     return err != ESP_OK ? err : unlock_err;
 }
 
+static void _touch_interrupt( esp_lcd_touch_handle_t touch_handle )
+{
+    ( void )touch_handle;
+    atomic_store_explicit( &_touch_interrupt_pending, true,
+                           memory_order_release );
+}
+
 static void _lvgl_touch_read( lv_indev_t *indev, lv_indev_data_t *data )
 {
     (void)indev;
@@ -222,8 +341,26 @@ static void _lvgl_touch_read( lv_indev_t *indev, lv_indev_data_t *data )
     uint8_t point_count = 0;
 
     data->state = LV_INDEV_STATE_RELEASED;
-    if( _display_touch_read( &point, &point_count, 1 ) == ESP_OK &&
-        point_count > 0 )
+    bool interrupt_pending = atomic_exchange_explicit(
+        &_touch_interrupt_pending, false, memory_order_acq_rel );
+    if( !interrupt_pending &&
+        !atomic_load_explicit( &_touch_contact_active,
+                               memory_order_acquire ) &&
+        gpio_get_level( TOUCH_INT_GPIO ) != 0 )
+    {
+        return;
+    }
+
+    esp_err_t err = _display_touch_read( &point, &point_count, 1 );
+    if( err != ESP_OK )
+    {
+        atomic_store( &_touch_contact_active, true );
+        return;
+    }
+
+    bool contact_active = point_count > 0;
+    atomic_store( &_touch_contact_active, contact_active );
+    if( contact_active )
     {
         data->point.x = point.x;
         data->point.y = point.y;
@@ -334,6 +471,21 @@ esp_err_t core2foraws_display_touch_data_get(
     esp_lcd_touch_point_data_t *points, uint8_t *point_count,
     uint8_t max_points )
 {
+    if( points == NULL || point_count == NULL || max_points == 0 )
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *point_count = 0;
+    if( !atomic_load_explicit( &_touch_interrupt_pending,
+                               memory_order_acquire ) &&
+        !atomic_load_explicit( &_touch_contact_active,
+                               memory_order_acquire ) &&
+        gpio_get_level( TOUCH_INT_GPIO ) != 0 )
+    {
+        return ESP_OK;
+    }
+
     return _display_touch_read( points, point_count, max_points );
 }
 
@@ -389,15 +541,7 @@ static esp_err_t _init_touch( void )
         ESP_LCD_TOUCH_IO_I2C_FT5x06_CONFIG();
     io_config.scl_speed_hz = 400000;
 
-    i2c_master_bus_handle_t i2c_bus = NULL;
-    esp_err_t err = core2foraws_i2c_get_bus_handle( COMMON_I2C_INTERNAL, &i2c_bus );
-    if( err != ESP_OK )
-    {
-        return err;
-    }
-
-    err = esp_lcd_new_panel_io_i2c_v2(
-        i2c_bus, &io_config, &_touch_io_handle );
+    esp_err_t err = _touch_io_new( &io_config, &_touch_io_handle );
     if( err != ESP_OK )
     {
         return err;
@@ -412,6 +556,7 @@ static esp_err_t _init_touch( void )
             .reset     = 0,
             .interrupt = 0,
         },
+        .interrupt_callback = _touch_interrupt,
         .flags = {
             .swap_xy  = 0,
             .mirror_x = 0,
@@ -419,8 +564,14 @@ static esp_err_t _init_touch( void )
         },
     };
 
-    return esp_lcd_touch_new_i2c_ft5x06( _touch_io_handle, &tp_cfg,
-                                         &_touch_handle );
+    err = esp_lcd_touch_new_i2c_ft5x06( _touch_io_handle, &tp_cfg,
+                                        &_touch_handle );
+    if( err == ESP_OK )
+    {
+        atomic_store( &_touch_interrupt_pending, true );
+        _touch_contact_active = false;
+    }
+    return err;
 }
 
 esp_err_t core2foraws_display_get_touch_handle(

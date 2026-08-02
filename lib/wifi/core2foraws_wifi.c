@@ -38,8 +38,8 @@
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <nvs_flash.h>
-#include <wifi_provisioning/manager.h>
-#include <wifi_provisioning/scheme_ble.h>
+#include <network_provisioning/manager.h>
+#include <network_provisioning/scheme_ble.h>
 #ifdef CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED
 #include <esp_bt.h>
 #endif
@@ -129,9 +129,9 @@ static void _on_prov_event_handler( void *arg, esp_event_base_t event_base, int3
 {
     static uint8_t _retries;
     
-    if ( event_id == WIFI_PROV_START )
+    if ( event_id == NETWORK_PROV_START )
         ESP_LOGI( _TAG, "\tProvisioning started" );
-    else if ( event_id == WIFI_PROV_CRED_RECV )
+    else if ( event_id == NETWORK_PROV_WIFI_CRED_RECV )
     {
         wifi_sta_config_t *wifi_sta_cfg = ( wifi_sta_config_t * )event_data;
         ESP_LOGI( _TAG, "\tReceived Wi-Fi credentials"
@@ -143,32 +143,32 @@ static void _on_prov_event_handler( void *arg, esp_event_base_t event_base, int3
         ESP_LOGD( _TAG, "\tPassword : (%u characters received)",
                     ( unsigned int ) strlen( ( const char * ) wifi_sta_cfg->password ) );
     }
-    else if ( event_id == WIFI_PROV_CRED_FAIL )
+    else if ( event_id == NETWORK_PROV_WIFI_CRED_FAIL )
     {
-        wifi_prov_sta_fail_reason_t *reason = (wifi_prov_sta_fail_reason_t *)event_data;
+        network_prov_wifi_sta_fail_reason_t *reason = (network_prov_wifi_sta_fail_reason_t *)event_data;
         ESP_LOGE( _TAG, "\tProvisioning failed!\n\tReason : %s"
                     "\n\tWi-Fi will erase the credentials and restart provisioning in %d retries",
-                    ( *reason == WIFI_PROV_STA_AUTH_ERROR ) ?
+                    ( *reason == NETWORK_PROV_WIFI_STA_AUTH_ERROR ) ?
                     "Wi-Fi station authentication failed" : "Wi-Fi access-point not found",
                     WIFI_RETRIES_MAX_FAILS - _retries );
         _retries++;
         if ( _retries >= WIFI_RETRIES_MAX_FAILS )
         {
             ESP_LOGI( _TAG, "\tFailed to connect with provisioned AP, reseting provisioned credentials" );
-            wifi_prov_mgr_reset_sm_state_on_failure();
+            network_prov_mgr_reset_wifi_sm_state_on_failure();
             _retries = 0;
         }
     }
-    else if ( event_id == WIFI_PROV_CRED_SUCCESS )
+    else if ( event_id == NETWORK_PROV_WIFI_CRED_SUCCESS )
     {
         ESP_LOGI( _TAG, "\tProvisioning successful");
         _retries = 0;
     }
-    else if ( event_id == WIFI_PROV_END )
+    else if ( event_id == NETWORK_PROV_END )
     {
         if( atomic_exchange( &_provisioning_active, false ) )
         {
-            wifi_prov_mgr_deinit();
+            network_prov_mgr_deinit();
         }
     }
 }
@@ -322,7 +322,7 @@ esp_err_t core2foraws_wifi_init( void )
     if ( err != ESP_OK ) goto cleanup;
     wifi_disconnected_handler_registered = true;
 
-    err = esp_event_handler_register( WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, &_on_prov_event_handler, NULL );
+    err = esp_event_handler_register( NETWORK_PROV_EVENT, ESP_EVENT_ANY_ID, &_on_prov_event_handler, NULL );
     if ( err != ESP_OK ) goto cleanup;
     provisioning_handler_registered = true;
 
@@ -339,7 +339,7 @@ cleanup:
     ESP_LOGE( _TAG, "Wi-Fi initialization failed: 0x%x", err );
 
     if ( provisioning_handler_registered )
-        esp_event_handler_unregister( WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, &_on_prov_event_handler );
+        esp_event_handler_unregister( NETWORK_PROV_EVENT, ESP_EVENT_ANY_ID, &_on_prov_event_handler );
     if ( wifi_disconnected_handler_registered )
         esp_event_handler_unregister( WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &_on_wifi_disconnect );
     if ( wifi_connected_handler_registered )
@@ -374,15 +374,15 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
     }
 
     /* Configuration for the provisioning manager */
-    wifi_prov_mgr_config_t config = 
+    network_prov_mgr_config_t config =
     {
-        .scheme = wifi_prov_scheme_ble,
-        .scheme_event_handler = WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM
+        .scheme = network_prov_scheme_ble,
+        .scheme_event_handler = NETWORK_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM
     };
 
     /* Initialize provisioning manager with the
      * configuration parameters set above */
-    esp_err_t err = wifi_prov_mgr_init( config );
+    esp_err_t err = network_prov_mgr_init( config );
     if ( err != ESP_OK )
     {
         return err;
@@ -390,10 +390,10 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
 
     bool wifi_is_provisioned = false;
     /* Let's find out if the device is provisioned */
-    err = wifi_prov_mgr_is_provisioned( &wifi_is_provisioned );
+    err = network_prov_mgr_is_wifi_provisioned( &wifi_is_provisioned );
     if ( err != ESP_OK )
     {
-        wifi_prov_mgr_deinit();
+        network_prov_mgr_deinit();
         return err;
     }
 
@@ -402,7 +402,7 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
         _service_name_mutex = xSemaphoreCreateMutex();
         if ( _service_name_mutex == NULL )
         {
-            wifi_prov_mgr_deinit();
+            network_prov_mgr_deinit();
             return ESP_ERR_NO_MEM;
         }
     }
@@ -410,7 +410,7 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
     err = _device_service_name_set();
     if ( err != ESP_OK )
     {
-        wifi_prov_mgr_deinit();
+        network_prov_mgr_deinit();
         return err;
     }
     ESP_LOGD( _TAG, "\tService Name: %s", service_name );
@@ -420,11 +420,11 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
     {
         ESP_LOGI( _TAG, "\tStarting Wi-Fi provisioning over BLE" );
 
-        wifi_prov_security_t security = WIFI_PROV_SECURITY_1;
+        network_prov_security_t security = NETWORK_PROV_SECURITY_1;
 
         const char *service_key = NULL;
 
-        /* This step is only useful when scheme is wifi_prov_scheme_ble. This will
+        /* This step is only useful when scheme is network_prov_scheme_ble. This will
          * set a custom 128 bit UUID which will be included in the BLE advertisement
          * and will correspond to the primary GATT service that provides provisioning
          * endpoints as GATT characteristics. Each GATT characteristic will be
@@ -440,11 +440,11 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
             0xb4, 0xdf, 0x5a, 0x1c, 0x3f, 0x6b, 0xf4, 0xbf,
             0xea, 0x4a, 0x82, 0x03, 0x04, 0x90, 0x1a, 0x02,
         };
-        err = wifi_prov_scheme_ble_set_service_uuid( custom_service_uuid );
+        err = network_prov_scheme_ble_set_service_uuid( custom_service_uuid );
         if ( err != ESP_OK )
         {
             ESP_LOGE( _TAG, "\tFailed to set BLE service UUID: 0x%x", err );
-            wifi_prov_mgr_deinit();
+            network_prov_mgr_deinit();
             return err;
         }
 
@@ -454,19 +454,19 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
             err = _get_pop( pop, sizeof( pop ) );
             if ( err == ESP_OK )
             {
-                err = wifi_prov_mgr_start_provisioning( security, pop, service_name, service_key );
+                err = network_prov_mgr_start_provisioning( security, pop, service_name, service_key );
             }
             xSemaphoreGive( _service_name_mutex );
         }
         else
         {
-            wifi_prov_mgr_deinit();
+            network_prov_mgr_deinit();
             return ESP_ERR_TIMEOUT;
         }
 
         if ( err != ESP_OK )
         {
-            wifi_prov_mgr_deinit();
+            network_prov_mgr_deinit();
             return err;
         }
 
@@ -487,7 +487,7 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
     {
         ESP_LOGI( _TAG, "\tAlready provisioned, starting Wi-Fi STA");
 
-        wifi_prov_mgr_deinit();
+        network_prov_mgr_deinit();
 
 #ifdef CONFIG_CORE2FORAWS_WIFI_RELEASE_BLE_WHEN_PROVISIONED
         /* Provisioning is skipped for this boot, so the controller's reserved
@@ -538,7 +538,7 @@ static esp_err_t _core2foraws_wifi_deinit_locked( void )
 
     if( atomic_exchange( &_provisioning_active, false ) )
     {
-        wifi_prov_mgr_deinit();
+        network_prov_mgr_deinit();
     }
 
     esp_err_t ret = ESP_OK;
@@ -568,7 +568,7 @@ static esp_err_t _core2foraws_wifi_deinit_locked( void )
     if ( err != ESP_OK && ret == ESP_OK ) ret = err;
     err = esp_event_handler_unregister( WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &_on_wifi_disconnect );
     if ( err != ESP_OK && ret == ESP_OK ) ret = err;
-    err = esp_event_handler_unregister( WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, &_on_prov_event_handler );
+    err = esp_event_handler_unregister( NETWORK_PROV_EVENT, ESP_EVENT_ANY_ID, &_on_prov_event_handler );
     if ( err != ESP_OK && ret == ESP_OK ) ret = err;
 
     if ( _wifi_netif != NULL )

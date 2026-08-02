@@ -12,6 +12,7 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <driver/i2c_master.h>
 
 #include "core2foraws_i2c.h"
@@ -557,6 +558,13 @@ esp_err_t core2foraws_i2c_lock( core2foraws_i2c_port_t port )
     if( xSemaphoreTakeRecursive( _bus_state[ port ].mutex,
                                  pdMS_TO_TICKS( I2C_LOCK_TIMEOUT_MS ) ) != pdTRUE )
     {
+        TaskHandle_t holder = xSemaphoreGetMutexHolder( _bus_state[ port ].mutex );
+        ESP_LOGE( _TAG,
+              "I2C lock timeout on port %d (requester=%s, holder=%s, state=%d, priority=%u)",
+                  port, pcTaskGetName( NULL ),
+                  holder != NULL ? pcTaskGetName( holder ) : "none",
+                  holder != NULL ? ( int )eTaskGetState( holder ) : -1,
+                  holder != NULL ? ( unsigned )uxTaskPriorityGet( holder ) : 0 );
         return ESP_ERR_TIMEOUT;
     }
 

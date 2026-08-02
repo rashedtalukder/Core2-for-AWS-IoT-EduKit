@@ -36,8 +36,7 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <esp_err.h>
-#include <mbedtls/bignum.h>
-#include "cryptoauthlib.h"
+#include <cryptoauthlib.h>
 
 /**
  * @brief The size of the public key string
@@ -49,11 +48,10 @@ extern "C" {
 /**
  * @brief The maximum crypto signature size supported by the library
  *
- * @note This is 1 KB, so allocate signature buffers on the heap rather than
- * the stack.
+ * @note ATECC608 P-256 signatures are returned as a raw 64-byte R || S value.
  */
 /* @[declare_core2foraws_crypto_max_signature_size] */
-#define CRYPTO_MAX_SIGNATURE_SIZE MBEDTLS_MPI_MAX_SIZE
+#define CRYPTO_MAX_SIGNATURE_SIZE ATCA_SIG_SIZE
 /* @[declare_core2foraws_crypto_max_signature_size] */
 
 /**

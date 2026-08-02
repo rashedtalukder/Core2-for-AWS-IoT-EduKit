@@ -116,7 +116,7 @@ static void _sd_spi_unlock( void )
  *
  */
 /* @[declare_spi_host_use] */
-#define SPI_HOST_USE HSPI_HOST
+#define SPI_HOST_USE SPI2_HOST
 /* @[declare_spi_host_use] */
 
 /* SD card SPI bus pins (shared with the LCD, see schema.yml). These must
