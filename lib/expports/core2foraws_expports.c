@@ -112,7 +112,7 @@ static esp_err_t _expports_lock( void )
         {
             while( atomic_load( &_expports_mutex_state ) == 1 )
             {
-                taskYIELD();
+                vTaskDelay( 1 );
             }
         }
     }
@@ -148,6 +148,20 @@ static uint8_t _core2foraws_expports_get_index( gpio_num_t pin )
         return 5;
 
     return 0xFF;
+}
+
+static esp_err_t _expports_pair_reset( pin_mode_t mode )
+{
+    gpio_num_t first_pin = mode == I2C ? PORT_A_SDA_PIN : PORT_C_UART_RX_PIN;
+    gpio_num_t second_pin = mode == I2C ? PORT_A_SCL_PIN : PORT_C_UART_TX_PIN;
+    esp_err_t err = mode == I2C ? core2foraws_i2c_deinit( COMMON_I2C_EXTERNAL )
+                                : uart_driver_delete( PORT_C_UART_NUM );
+    if( err != ESP_OK ) return err;
+    _port_pins[ _core2foraws_expports_get_index( first_pin ) ].mode = NONE;
+    _port_pins[ _core2foraws_expports_get_index( second_pin ) ].mode = NONE;
+    err = gpio_reset_pin( first_pin );
+    esp_err_t second_err = gpio_reset_pin( second_pin );
+    return err != ESP_OK ? err : second_err;
 }
 
 static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode )
@@ -261,13 +275,8 @@ static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode
                 return err;
             }
 
-            err = uart_set_pin(PORT_C_UART_NUM, PORT_C_UART_TX_PIN, PORT_C_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-            if ( err != ESP_OK )
-            {
-                ESP_LOGE( _TAG, "\tFailed to set pins %d, %d, to UART%d. Error code: 0x%x.", PORT_C_UART_RX_PIN, PORT_C_UART_TX_PIN, PORT_C_UART_NUM, err );
-                uart_driver_delete( PORT_C_UART_NUM );
-                return err;
-            }
+            _port_pins[ rx_idx ].mode = UART;
+            _port_pins[ tx_idx ].mode = UART;
         }
         else
         {
@@ -283,9 +292,14 @@ static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode
         uint8_t index = _core2foraws_expports_get_index( pin );
         pin_mode_t current_mode = _port_pins[ index ].mode;
 
+        if( current_mode == I2C || current_mode == UART )
+        {
+            return _expports_pair_reset( current_mode );
+        }
         if ( current_mode == DAC )
         {
             err = dac_oneshot_del_channel( _dac_handle );
+            if( err != ESP_OK ) return err;
             _dac_handle = NULL;
         }
         else if ( current_mode == ADC )
@@ -308,22 +322,6 @@ static esp_err_t _core2foraws_expports_pin_init( gpio_num_t pin, pin_mode_t mode
                 _adc_handle = NULL;
             }
             err = ESP_OK;
-        }
-        else if ( current_mode == UART )
-        {
-            /* Only delete the UART driver once both pins are released */
-            uint8_t rx_idx = _core2foraws_expports_get_index( PORT_C_UART_RX_PIN );
-            uint8_t tx_idx = _core2foraws_expports_get_index( PORT_C_UART_TX_PIN );
-            uint8_t other_idx = ( index == rx_idx ) ? tx_idx : rx_idx;
-
-            if ( _port_pins[ other_idx ].mode != UART )
-            {
-                err = uart_driver_delete( PORT_C_UART_NUM );
-            }
-            else
-            {
-                err = ESP_OK;
-            }
         }
         else
         {
@@ -428,11 +426,30 @@ esp_err_t core2foraws_expports_pin_reset( gpio_num_t pin )
     return err;
 }
 
+static esp_err_t _expports_pair_prepare( gpio_num_t first_pin,
+                                         gpio_num_t second_pin, pin_mode_t mode )
+{
+    if( _port_pins[ _core2foraws_expports_get_index( first_pin ) ].mode == mode &&
+        _port_pins[ _core2foraws_expports_get_index( second_pin ) ].mode == mode )
+    {
+        return ESP_OK;
+    }
+    esp_err_t err = _core2foraws_expports_pin_handler( first_pin, NONE );
+    if( err != ESP_OK ) return err;
+    return _core2foraws_expports_pin_handler( second_pin, NONE );
+}
+
 esp_err_t core2foraws_expports_i2c_begin( void )
 {
     esp_err_t err = _expports_lock();
     if( err != ESP_OK ) return err;
 
+    err = _expports_pair_prepare( PORT_A_SDA_PIN, PORT_A_SCL_PIN, I2C );
+    if( err != ESP_OK )
+    {
+        _expports_unlock();
+        return err;
+    }
     err = _core2foraws_expports_pin_handler( PORT_A_SDA_PIN, I2C );
     if( err == ESP_OK )
     {
@@ -441,7 +458,6 @@ esp_err_t core2foraws_expports_i2c_begin( void )
     if( err != ESP_OK )
     {
         _core2foraws_expports_pin_handler( PORT_A_SDA_PIN, NONE );
-        core2foraws_i2c_deinit( COMMON_I2C_EXTERNAL );
     }
 
     _expports_unlock();
@@ -493,12 +509,7 @@ esp_err_t core2foraws_expports_i2c_close( void )
     esp_err_t err = _expports_lock();
     if( err != ESP_OK ) return err;
 
-    err = core2foraws_i2c_deinit( COMMON_I2C_EXTERNAL );
-    esp_err_t reset_err =
-        _core2foraws_expports_pin_handler( PORT_A_SDA_PIN, NONE );
-    if( err == ESP_OK ) err = reset_err;
-    reset_err = _core2foraws_expports_pin_handler( PORT_A_SCL_PIN, NONE );
-    if( err == ESP_OK ) err = reset_err;
+    err = _expports_pair_reset( I2C );
 
     _expports_unlock();
     return err;
@@ -578,6 +589,12 @@ esp_err_t core2foraws_expports_uart_begin( uint32_t baud )
     esp_err_t err = _expports_lock();
     if( err != ESP_OK ) return err;
 
+    err = _expports_pair_prepare( PORT_C_UART_RX_PIN, PORT_C_UART_TX_PIN, UART );
+    if( err != ESP_OK )
+    {
+        _expports_unlock();
+        return err;
+    }
     err = _core2foraws_expports_pin_handler( PORT_C_UART_RX_PIN, UART );
     if ( err != ESP_OK )
     {
@@ -603,7 +620,9 @@ esp_err_t core2foraws_expports_uart_begin( uint32_t baud )
         .rx_flow_ctrl_thresh = 122,
     };
     
-    err = uart_param_config( PORT_C_UART_NUM, &uart_config );
+    err = uart_set_pin( PORT_C_UART_NUM, PORT_C_UART_TX_PIN, PORT_C_UART_RX_PIN,
+                        UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE );
+    if( err == ESP_OK ) err = uart_param_config( PORT_C_UART_NUM, &uart_config );
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "\tFailed to configure UART%d with the provided configuration.", PORT_C_UART_NUM );

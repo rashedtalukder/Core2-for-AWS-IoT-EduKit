@@ -90,7 +90,9 @@ extern "C"
   /**
    * @brief Gets the local date and time from the Real-Time Clock (RTC).
    *
-   * The RTC stores time in UTC. This function converts it to local time
+  * Uses 64-bit epoch arithmetic for the supported 1900-2099 year range.
+  *
+  * The RTC stores time in UTC. This function converts it to local time
    * using the timezone configured in CONFIG_TIME_ZONE.
    *
    * **Example:**

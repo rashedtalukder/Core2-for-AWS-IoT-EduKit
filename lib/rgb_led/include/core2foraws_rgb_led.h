@@ -57,6 +57,9 @@ typedef enum
 /**
  * @brief Initializes the RGB LED driver.
  *
+ * Returns ESP_ERR_INVALID_STATE when a prior failed initialization or teardown
+ * still owns resources; retry core2foraws_rgb_led_deinit() before initialization.
+ *
  * @note The core2foraws_init() calls this function when the 
  * hardware feature is enabled.
  * 
@@ -316,6 +319,12 @@ esp_err_t core2foraws_rgb_led_clear( void );
 
 /**
  * @brief Removes the RGB LED driver and frees the memory used.
+ *
+ * Wait/disable/delete errors retain unreleased resources and return the original
+ * error. Retry this function to finish cleanup; init and write are rejected
+ * until it succeeds. Already completed cleanup steps are not repeated.
+ * An active transmission retains its buffer until completion. This function
+ * does not transmit black pixels; clear and write before deinit to turn LEDs off.
  *
  * **Example:**
  *

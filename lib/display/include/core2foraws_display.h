@@ -101,6 +101,9 @@ extern "C"
    * contiguous, DMA-capable internal DRAM. If that allocation cannot be met,
    * initialization fails with `ESP_ERR_NO_MEM` and logs the required and
    * available sizes; lower that option or free internal DRAM.
+  * A BSP-owned RGB565 flush callback handles byte swapping and SPI ownership.
+  * SPI timeouts skip and complete the flush without issuing a panel transfer;
+  * the skipped region is repainted on its next application invalidation.
    *
    * @return
    * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
@@ -119,9 +122,12 @@ extern "C"
    * The shared SPI bus remains initialized because the SD card may still use
   * it. Touch teardown takes the internal-I2C lock so an LVGL or button-task
   * read cannot overlap removal of the FT6336 panel-I/O device. This function
-  * is idempotent.
+  * is idempotent. A SPI-barrier timeout retains all resources and leaves
+  * refresh paused. Release the competing SPI operation, then retry deinit or
+  * call lvgl_port_resume() and invalidate the screen to resume rendering.
    *
-  * @return ESP_OK on success, or the internal-I2C lock/device-removal error.
+  * @return ESP_OK on success, ESP_ERR_TIMEOUT on a SPI-barrier timeout, or
+  * the internal-I2C lock/device-removal error.
    */
   /* @[declare_core2foraws_display_deinit] */
   esp_err_t core2foraws_display_deinit( void );

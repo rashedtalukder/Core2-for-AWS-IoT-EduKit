@@ -67,9 +67,11 @@ static bool     _initialised = false;
 
 static rmt_channel_handle_t _rmt_channel = NULL;
 static rmt_encoder_handle_t _rmt_encoder = NULL;
+static bool _rmt_enabled = false;
 static StaticSemaphore_t _rgb_mutex_storage;
 static SemaphoreHandle_t _rgb_mutex = NULL;
 static atomic_uchar _rgb_mutex_state;
+static esp_err_t _rgb_remove_locked( void );
 
 static esp_err_t _rgb_lock( void )
 {
@@ -85,7 +87,7 @@ static esp_err_t _rgb_lock( void )
         {
             while( atomic_load( &_rgb_mutex_state ) == 1 )
             {
-                taskYIELD();
+                vTaskDelay( 1 );
             }
         }
     }
@@ -129,6 +131,11 @@ esp_err_t core2foraws_rgb_led_init( void )
         _rgb_unlock();
         return ESP_OK;
     }
+    if( _rmt_channel != NULL || _rmt_encoder != NULL )
+    {
+        _rgb_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
 
     /* Zero the pixel buffer */
     memset( _led_buf, 0, SK6812_BUF_SIZE );
@@ -171,8 +178,7 @@ esp_err_t core2foraws_rgb_led_init( void )
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to create RMT bytes encoder: 0x%x", err );
-        rmt_del_channel( _rmt_channel );
-        _rmt_channel = NULL;
+        (void)_rgb_remove_locked();
         _rgb_unlock();
         return err;
     }
@@ -181,14 +187,12 @@ esp_err_t core2foraws_rgb_led_init( void )
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to enable RMT channel: 0x%x", err );
-        rmt_del_encoder( _rmt_encoder );
-        rmt_del_channel( _rmt_channel );
-        _rmt_encoder = NULL;
-        _rmt_channel = NULL;
+        (void)_rgb_remove_locked();
         _rgb_unlock();
         return err;
     }
 
+    _rmt_enabled = true;
     _initialised = true;
     _rgb_unlock();
     return ESP_OK;
@@ -323,33 +327,38 @@ esp_err_t core2foraws_rgb_led_clear( void )
     return ESP_OK;
 }
 
+static esp_err_t _rgb_remove_locked( void )
+{
+    _initialised = false;
+    if( _rmt_enabled )
+    {
+        esp_err_t err = rmt_tx_wait_all_done( _rmt_channel, SK6812_FLUSH_TIMEOUT_MS );
+        if( err != ESP_OK ) return err;
+        err = rmt_disable( _rmt_channel );
+        if( err != ESP_OK ) return err;
+        _rmt_enabled = false;
+    }
+    if( _rmt_encoder != NULL )
+    {
+        esp_err_t err = rmt_del_encoder( _rmt_encoder );
+        if( err != ESP_OK ) return err;
+        _rmt_encoder = NULL;
+    }
+    if( _rmt_channel != NULL )
+    {
+        esp_err_t err = rmt_del_channel( _rmt_channel );
+        if( err != ESP_OK ) return err;
+        _rmt_channel = NULL;
+    }
+    memset( _led_buf, 0, SK6812_BUF_SIZE );
+    return ESP_OK;
+}
+
 esp_err_t core2foraws_rgb_led_deinit( void )
 {
     esp_err_t err = _rgb_lock();
     if( err != ESP_OK ) return err;
-
-    if ( !_initialised )
-    {
-        _rgb_unlock();
-        return ESP_OK;
-    }
-
-    err = rmt_tx_wait_all_done( _rmt_channel, SK6812_FLUSH_TIMEOUT_MS );
-    if( err != ESP_OK )
-    {
-        _rgb_unlock();
-        return err;
-    }
-
-    _initialised = false;
-    memset( _led_buf, 0, SK6812_BUF_SIZE );
-
-    rmt_disable( _rmt_channel );
-    rmt_del_encoder( _rmt_encoder );
-    err = rmt_del_channel( _rmt_channel );
-    _rmt_encoder = NULL;
-    _rmt_channel = NULL;
-
+    err = _rgb_remove_locked();
     _rgb_unlock();
     return err;
 }

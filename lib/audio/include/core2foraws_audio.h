@@ -74,6 +74,9 @@ extern "C" {
  * with `false` when you are done.
  * Disabling holds the NS4168 CTRL line low for more than the datasheet's
  * 100 us shutdown-entry requirement before releasing the I2S channel.
+ * If shutdown/disable/delete fails, owned resources are retained and the
+ * original error is returned. Retry with false before enabling either mode
+ * or writing audio. Failed initialization uses the same retryable cleanup.
  *
  * @param[in] state Desired state of the speaker. 1 to enable, 0 to 
  * disable.
@@ -88,6 +91,10 @@ esp_err_t core2foraws_audio_speaker_enable( bool state );
 
 /**
  * @brief Enables or disables the device microphone driver.
+ *
+ * A failed disable/delete retains its channel for a later false call. Neither
+ * mode can be enabled, and microphone reads are rejected, while cleanup is
+ * pending. Failed initialization also retains any resource it cannot release.
  *
  * Initializes the I2S bus for receiving right-only channel audio, 
  * with 16-bit depth, at the sample rate defined by @ref 
@@ -150,8 +157,11 @@ esp_err_t core2foraws_audio_mic_enable( bool state );
  * @param[in] sound_buffer The sound buffer to play.
  * @param[in] to_write_length Length of the buffer to play.
  *
- * @note The call waits at most @ref AUDIO_IO_TIMEOUT_MS and serializes against
- * speaker disable so the I2S channel cannot be deleted during the transfer.
+ * @note Lock acquisition and the I2S transfer each use @ref AUDIO_IO_TIMEOUT_MS.
+ * The transfer timeout is in milliseconds, independently of the RTOS tick rate.
+ * The lock prevents speaker disable from deleting the active I2S channel.
+ * ESP_OK means the entire buffer was accepted; a short successful driver write
+ * is reported as ESP_FAIL. Acceptance does not mean playback has finished.
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK    : Success
@@ -220,8 +230,10 @@ esp_err_t core2foraws_audio_speaker_write( const uint8_t *sound_buffer, size_t t
  * @param[in] to_read_length Length of the buffer to read.
  * @param[out] was_read_length Length of audio read.
  *
- * @note The call waits at most @ref AUDIO_IO_TIMEOUT_MS and serializes against
- * microphone disable so the I2S channel cannot be deleted during the transfer.
+ * @note Lock acquisition and the I2S transfer each use @ref AUDIO_IO_TIMEOUT_MS.
+ * The transfer timeout is in milliseconds, independently of the RTOS tick rate.
+ * The lock prevents microphone disable from deleting the active I2S channel.
+ * A timed-out read may still return partial data through was_read_length.
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK    : Success

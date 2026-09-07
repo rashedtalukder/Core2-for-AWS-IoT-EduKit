@@ -70,6 +70,9 @@ typedef enum
 #define POWER_RAIL_ESP32                       POWER_RAIL_DCDC1
 /* @[declare_core2foraws_power_rail_esp32] */
 
+/** @brief Fixed board-qualified MCU supply; other DCDC1 voltages are rejected. */
+#define POWER_MCU_MILLIVOLTS 3350U
+
 /**
  * @brief The power rail supplying power to the display controller 
  * and SD card.
@@ -341,33 +344,19 @@ esp_err_t core2foraws_power_plugged_get( bool *status );
 /* @[declare_core2foraws_power_plugged_get] */
 
 /**
- * @brief Power the device off via the power management unit (PMU).
+ * @brief Request normal, recoverable whole-device PMU shutdown.
  *
- * Requests the AXP192 to shut down all of its output rails, fully
- * powering down the board. This is the same shutdown path triggered by a
- * long press of the physical power key. If the device is running on
- * battery, it turns off completely; if external power (USB-C or V-In) is
- * still connected, the AXP192 remains in its low-power charging state.
+ * Sets only AXP192 REG32H bit 7 (Manner-A shutdown). DCDC1 enable/voltage
+ * configuration and startup defaults are not changed. With suitable power
+ * present, the physical power key can initiate the normal power-on sequence.
+ * This is deliberately allowed while directly disabling the MCU rail is not.
  *
- * @note On success the ESP32 loses power immediately, so this function
- * does not return.
+ * @note Stop application workers, close/unmount SD, and commit NVS first.
+ * Power is lost on success, so return to the caller is not guaranteed.
+ * A serial reset is not a substitute for pressing the power key to restart.
  *
- * **Example:**
- *
- * Power the device off.
- * @code{c}
- *  #include "core2foraws.h"
- *
- *  void app_main( void )
- *  {
- *      core2foraws_init();
- *      core2foraws_power_off();
- *  }
- * @endcode
- *
- * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
- *  - ESP_OK                : Success (does not return on success)
- *  - ESP_ERR_INVALID_ARG	: Driver parameter error
+ * @return ESP_OK if the command is accepted and execution continues, or the
+ * underlying I2C/locking error. Successful shutdown normally does not return.
  */
 /* @[declare_core2foraws_power_off] */
 esp_err_t core2foraws_power_off( void );
@@ -404,7 +393,12 @@ esp_err_t core2foraws_power_axp_reg_get( uint8_t reg, uint8_t *buffer );
  * @warning Manipulating the PMU values is only recommended for 
  * _advanced_ users as it can lead to a bricked device.
  *
- * @param[in] reg The register address to read from.
+ * @note Clearing DCDC1 enable (0x12 bit 0) or selecting another MCU voltage
+ * (0x26 bits 6:0) returns ESP_ERR_NOT_SUPPORTED without a write. Normal whole-
+ * device shutdown (0x32 bit 7) is allowed. Other PMU fields still require care;
+ * do not program startup defaults or undocumented registers.
+ *
+ * @param[in] reg The register address to write to.
  * @param[in] value The value to set the register to.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
@@ -440,6 +434,8 @@ esp_err_t core2foraws_power_axp_read( uint8_t reg, void *buffer );
  *
  * This function is used to directly write to the AXP192 PMU 
  * registers. 
+ * The MCU guard documented by core2foraws_power_axp_reg_set() also applies
+ * here; prohibited writes return ESP_ERR_NOT_SUPPORTED.
  * 
  * @warning Manipulating the PMU values is only recommended for 
  * _advanced_ users as it can lead to a bricked device.
@@ -455,18 +451,18 @@ esp_err_t core2foraws_power_axp_write( uint8_t reg, const uint8_t *buffer );
 /* @[declare_core2foraws_power_axp_write] */
 
 /**
- * @brief Update one or more Power Management Unit (PMU) registers 
- * at once.
+ * @brief Atomically update selected bits in one PMU register.
  *
- * This function is used update one or more AXP192 PMU register 
- * values in a single call.
+ * The resulting value is subject to the same MCU guard as
+ * core2foraws_power_axp_reg_set(). Prohibited updates return
+ * ESP_ERR_NOT_SUPPORTED without issuing a write.
  * 
  * @warning Manipulating the PMU values is only recommended for 
  * _advanced_ users as it can lead to a bricked device.
  *
- * @param[in] reg The starting register address to write to.
- * @param[in] affect The desired registers to change.
- * @param[in] value The desired value to change register(s) to.
+ * @param[in] reg The register address to update.
+ * @param[in] affect Mask of bits to change.
+ * @param[in] value Desired values of the masked bits.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
  *  - ESP_ERR_INVALID_ARG	: Driver parameter error
@@ -503,10 +499,10 @@ esp_err_t core2foraws_power_rail_state_get( power_rail_t rail, bool *enabled );
  * _advanced_ users as it can lead to a bricked device.
  *
  * @param[in] rail The power rail to set the state of.
- * @param[out] enabled The state to set the rail to.
+ * @param[in] enabled The state to set the rail to.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
- *  - ESP_ERR_NOT_SUPPORTED : @ref POWER_RAIL_LDO1 cannot be switched
+ *  - ESP_ERR_NOT_SUPPORTED : LDO1 cannot be switched; DCDC1/ESP32 cannot be disabled
  *  - ESP_ERR_INVALID_ARG	: Unknown rail
  */
 /* @[declare_core2foraws_power_rail_state_set] */
@@ -546,8 +542,9 @@ esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts
  * _advanced_ users as it can lead to a bricked device.
  *
  * @param[in] rail The power rail to set the voltage of.
- * @param[out] millivolts The millivolts to set the rail to.
- * The value must match the AXP192 step size for that rail.
+ * @param[in] millivolts The millivolts to set the rail to.
+ * The value must match the AXP192 step size. DCDC1/ESP32 accepts only
+ * POWER_MCU_MILLIVOLTS; other values return ESP_ERR_NOT_SUPPORTED.
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
  *  - ESP_ERR_NOT_SUPPORTED : Rail has no adjustable voltage (LDO1, EXTEN)

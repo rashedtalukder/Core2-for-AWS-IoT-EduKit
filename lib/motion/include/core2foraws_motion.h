@@ -199,6 +199,9 @@ esp_err_t core2foraws_motion_gyro_get( float *roll, float *pitch, float *yaw );
 /**
  * @brief Sets the accelerometer full-scale measurement range.
  *
+ * Register and cached scale updates are serialized against scaled reads.
+ * Failed register writes leave the cached conversion factor unchanged.
+ *
  * A smaller range gives finer resolution but saturates at lower
  * accelerations; a larger range measures stronger accelerations with
  * coarser resolution. The MPU6886 powers up at ±8 G by default.
@@ -230,6 +233,9 @@ esp_err_t core2foraws_motion_accel_range_set( motion_accel_range_t range );
 
 /**
  * @brief Sets the gyroscope full-scale measurement range.
+ *
+ * Register and cached scale updates are serialized against scaled reads.
+ * Failed register writes leave the cached conversion factor unchanged.
  *
  * A smaller range gives finer resolution but saturates at lower
  * rotational speeds; a larger range measures faster rotations with

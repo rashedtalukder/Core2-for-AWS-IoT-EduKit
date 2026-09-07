@@ -60,8 +60,10 @@ esp_err_t core2foraws_init( void )
    * display and RGB LED drivers therefore depend on this step. */
   err = core2foraws_power_init();
   if( err != ESP_OK )
+  {
     ESP_LOGE( _TAG, "\tError initializing power. Error 0x%x", err );
-  ret |= err;
+    return err;
+  }
 
   /* Display (ILI9342C LCD + FT6336 touch). Depends on the AXP192 having
    * raised the LCD logic/backlight rails and released the LCD/touch reset

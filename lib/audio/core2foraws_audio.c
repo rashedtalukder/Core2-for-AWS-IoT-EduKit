@@ -64,6 +64,8 @@ static bool _microphone_initialized = false;
 
 static i2s_chan_handle_t _tx_handle = NULL;
 static i2s_chan_handle_t _rx_handle = NULL;
+static bool _tx_running = false;
+static bool _rx_running = false;
 
 /* Serializes the speaker/microphone enable/disable paths. The speaker and
    microphone share GPIO0 and the single I2S_NUM_0 controller, so concurrent
@@ -101,7 +103,7 @@ static SemaphoreHandle_t _core2foraws_audio_mutex_get( void )
 
     while( atomic_load( &_audio_mutex_state ) == AUDIO_MUTEX_INITIALIZING )
     {
-        taskYIELD();
+        vTaskDelay( 1 );
     }
     return atomic_load( &_audio_mutex_state ) == AUDIO_MUTEX_READY
                ? _audio_mutex
@@ -178,10 +180,11 @@ esp_err_t core2foraws_audio_speaker_write( const uint8_t *sound_buffer, size_t t
         size_t bytes_written = 0;
         err = i2s_channel_write( _tx_handle, sound_buffer, to_write_length,
                      &bytes_written,
-                     pdMS_TO_TICKS( AUDIO_IO_TIMEOUT_MS ) );
+                     AUDIO_IO_TIMEOUT_MS );
         if ( ( err == ESP_OK ) && ( bytes_written != to_write_length ) )
         {
             ESP_LOGW( _TAG, "Speaker wrote %u of %u bytes.", ( unsigned int ) bytes_written, ( unsigned int ) to_write_length );
+            err = ESP_FAIL;
         }
         /* Per-buffer trace only (never per sample) to keep the UART quiet
            even when verbose logging is enabled during audio streaming. */
@@ -226,7 +229,7 @@ esp_err_t core2foraws_audio_mic_read( int8_t *sound_buffer, size_t to_read_lengt
     {
         err = i2s_channel_read( _rx_handle, sound_buffer, to_read_length,
                     was_read_length,
-                    pdMS_TO_TICKS( AUDIO_IO_TIMEOUT_MS ) );
+                    AUDIO_IO_TIMEOUT_MS );
         /* Per-buffer trace only (never per sample) to keep the UART quiet
            even when verbose logging is enabled during audio capture. */
         ESP_LOGV( _TAG, "Microphone read %u of %u bytes (0x%x).", ( unsigned int ) *was_read_length, ( unsigned int ) to_read_length, err );
@@ -266,9 +269,9 @@ static esp_err_t _core2foraws_audio_speaker_install( void )
         return ESP_OK;
     }
     
-    if ( _microphone_initialized == true )
+    if ( _rx_handle != NULL || _tx_handle != NULL )
     {
-        ESP_LOGE( _TAG, "Microphone is initialized. Cannot use speaker at the same time because both share GPIO0." );
+        ESP_LOGE( _TAG, "Audio channel still owned; disable its current mode before enabling speaker." );
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -309,9 +312,7 @@ static esp_err_t _core2foraws_audio_speaker_install( void )
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to init I2S std mode: 0x%x.", err );
-        i2s_del_channel( _tx_handle );
-        _tx_handle = NULL;
-        _core2foraws_audio_reset_speaker_pins();
+        (void)_core2foraws_audio_speaker_remove();
         return err;
     }
 
@@ -319,11 +320,10 @@ static esp_err_t _core2foraws_audio_speaker_install( void )
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to enable I2S TX channel: 0x%x.", err );
-        i2s_del_channel( _tx_handle );
-        _tx_handle = NULL;
-        _core2foraws_audio_reset_speaker_pins();
+        (void)_core2foraws_audio_speaker_remove();
         return err;
     }
+    _tx_running = true;
 
     /* Now power on the NS4168. The I2S bus is already clocking out
        silence, so the amp wakes into a clean, quiet state. */
@@ -331,10 +331,7 @@ static esp_err_t _core2foraws_audio_speaker_install( void )
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to power on speaker amplifier. core2foraws_power_speaker returned 0x%x.", err );
-        i2s_channel_disable( _tx_handle );
-        i2s_del_channel( _tx_handle );
-        _tx_handle = NULL;
-        _core2foraws_audio_reset_speaker_pins();
+        (void)_core2foraws_audio_speaker_remove();
         return err;
     }
 
@@ -343,38 +340,45 @@ static esp_err_t _core2foraws_audio_speaker_install( void )
     return ESP_OK;
 }
 
+static esp_err_t _audio_channel_remove( i2s_chan_handle_t *handle, bool *running )
+{
+    if( *running )
+    {
+        esp_err_t err = i2s_channel_disable( *handle );
+        if( err != ESP_OK ) return err;
+        *running = false;
+    }
+    esp_err_t err = i2s_del_channel( *handle );
+    if( err == ESP_OK ) *handle = NULL;
+    return err;
+}
+
 static esp_err_t _core2foraws_audio_speaker_remove( void )
 {
-    esp_err_t err = ESP_OK;
-
-    if ( _speaker_initialized == false )
+    if ( _tx_handle == NULL )
     {
         return ESP_OK;
     }
 
-    err = core2foraws_power_speaker_enable( false );
+    _speaker_initialized = false;
+    esp_err_t err = core2foraws_power_speaker_enable( false );
 
     if (err != ESP_OK )
     {
         ESP_LOGW( _TAG, "Failed to power off speaker amplifier. core2foraws_power_speaker returned 0x%x.", err );
+        return err;
     }
     else
     {
         esp_rom_delay_us( NS4168_SHUTDOWN_HOLD_US );
     }
 
-    i2s_channel_disable( _tx_handle );
-    if ( i2s_del_channel( _tx_handle ) != ESP_OK )
-    {
-        err = ESP_FAIL;
-    }
-    _tx_handle = NULL;
+    err = _audio_channel_remove( &_tx_handle, &_tx_running );
+    if( err != ESP_OK ) return err;
 
     _core2foraws_audio_reset_speaker_pins();
-    
-    _speaker_initialized = false;
 
-    return core2foraws_common_error( err );
+    return ESP_OK;
 }
 
 static esp_err_t _core2foraws_audio_mic_install( void )
@@ -389,9 +393,9 @@ static esp_err_t _core2foraws_audio_mic_install( void )
         return ESP_OK;
     }
 
-    if ( _speaker_initialized == true )
+    if ( _tx_handle != NULL || _rx_handle != NULL )
     {
-        ESP_LOGE( _TAG, "Speaker is initialized. Cannot use microphone at the same time because both share GPIO0." );
+        ESP_LOGE( _TAG, "Audio channel still owned; disable its current mode before enabling microphone." );
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -426,9 +430,7 @@ static esp_err_t _core2foraws_audio_mic_install( void )
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to init I2S PDM RX mode: 0x%x.", err );
-        i2s_del_channel( _rx_handle );
-        _rx_handle = NULL;
-        _core2foraws_audio_reset_mic_pins();
+        (void)_core2foraws_audio_mic_remove();
         return err;
     }
 
@@ -436,11 +438,10 @@ static esp_err_t _core2foraws_audio_mic_install( void )
     if ( err != ESP_OK )
     {
         ESP_LOGE( _TAG, "Failed to enable I2S RX channel: 0x%x.", err );
-        i2s_del_channel( _rx_handle );
-        _rx_handle = NULL;
-        _core2foraws_audio_reset_mic_pins();
+        (void)_core2foraws_audio_mic_remove();
         return err;
     }
+    _rx_running = true;
 
     /* The SPM1423 microphone needs up to 10 ms to wake up after the
        PDM clock starts (see datasheet §11.2). Wait here so the first
@@ -454,19 +455,15 @@ static esp_err_t _core2foraws_audio_mic_install( void )
 
 static esp_err_t _core2foraws_audio_mic_remove( void )
 {
-    esp_err_t err = ESP_OK;
-
-    if ( _microphone_initialized == false )
+    if ( _rx_handle == NULL )
     {
         return ESP_OK;
     }
 
-    i2s_channel_disable( _rx_handle );
-    err = i2s_del_channel( _rx_handle );
-    _rx_handle = NULL;
+    _microphone_initialized = false;
+    esp_err_t err = _audio_channel_remove( &_rx_handle, &_rx_running );
+    if( err != ESP_OK ) return err;
     _core2foraws_audio_reset_mic_pins();
 
-    _microphone_initialized = false;
-
-    return core2foraws_common_error( err );
+    return ESP_OK;
 }

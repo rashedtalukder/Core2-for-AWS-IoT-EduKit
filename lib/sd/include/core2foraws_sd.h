@@ -150,6 +150,10 @@ esp_err_t core2foraws_sd_mount( void );
  * @param[out] message The string read and copied from the file on the SD card.
  * @param[in] to_read_length The number of characters to read from the file.
  *
+ * @note With valid arguments, message is initialized to an empty string before
+ * acquiring locks. Close failures are returned. If closing times out on SPI,
+ * the BSP retains the file and retries its close before the next SD operation.
+ *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK          : Success
  *  - ESP_ERR_TIMEOUT : Shared SPI bus or SD lock was not free in time.
@@ -207,6 +211,11 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
  * @param[in] file_name The pointer to the file name.
  * @param[in] message The pointer to the string to write to the file on the SD card.
  * @param[out] wrote_length The pointer to the number of characters that was written to the file.
+ *
+ * @note ESP_OK requires a successful close, including any buffered flush.
+ * wrote_length counts bytes accepted by stdio, not durable bytes after an error.
+ * A SPI timeout during close retains the file for retry before the next SD
+ * operation, including unmount; no additional file is opened in the meantime.
  *
  * @return [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK          : Success

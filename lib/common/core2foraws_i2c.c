@@ -102,7 +102,7 @@ static esp_err_t _i2c_mutex_ensure( core2foraws_i2c_port_t port )
 
     while( atomic_load( &state->mutex_state ) == I2C_MUTEX_INITIALIZING )
     {
-        taskYIELD();
+        vTaskDelay( 1 );
     }
 
     return atomic_load( &state->mutex_state ) == I2C_MUTEX_READY
@@ -250,14 +250,21 @@ esp_err_t core2foraws_i2c_get_bus_handle( core2foraws_i2c_port_t port,
         return ESP_ERR_INVALID_ARG;
     }
 
-    core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
-    if( state->handle == NULL )
+    if( atomic_load( &_bus_state[ port ].mutex_state ) != I2C_MUTEX_READY )
     {
         return ESP_ERR_INVALID_STATE;
     }
 
-    *handle = state->handle;
-    return ESP_OK;
+    esp_err_t err = core2foraws_i2c_lock( port );
+    if( err != ESP_OK )
+    {
+        return err;
+    }
+
+    *handle = _bus_state[ port ].handle;
+    err = *handle != NULL ? ESP_OK : ESP_ERR_INVALID_STATE;
+    core2foraws_i2c_unlock( port );
+    return err;
 }
 
 esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
@@ -271,10 +278,8 @@ esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
         return ESP_ERR_INVALID_ARG;
     }
 
-    core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
-    if( state->handle == NULL )
+    if( atomic_load( &_bus_state[ port ].mutex_state ) != I2C_MUTEX_READY )
     {
-        ESP_LOGE( _TAG, "Bus port %d not initialized", port );
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -282,6 +287,13 @@ esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
     if( err != ESP_OK )
     {
         return err;
+    }
+
+    core2foraws_i2c_bus_state_t *state = &_bus_state[ port ];
+    if( state->handle == NULL )
+    {
+        core2foraws_i2c_unlock( port );
+        return ESP_ERR_INVALID_STATE;
     }
 
     for( core2foraws_i2c_device_node_t *node = state->devices;
@@ -366,8 +378,9 @@ esp_err_t core2foraws_i2c_device_remove( i2c_master_dev_handle_t dev_handle )
             _i2c_device_find_by_handle( state, dev_handle, &previous );
         if( node != NULL )
         {
-            if( --node->references > 0 )
+            if( node->references > 1 )
             {
+                node->references--;
                 core2foraws_i2c_unlock( port );
                 return ESP_OK;
             }
@@ -407,7 +420,7 @@ esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
         return ESP_ERR_INVALID_ARG;
     }
 
-    if( _bus_state[ port ].handle == NULL )
+    if( atomic_load( &_bus_state[ port ].mutex_state ) != I2C_MUTEX_READY )
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -416,6 +429,13 @@ esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
     {
         ESP_LOGE( _TAG, "I2C read: mutex timeout on port %d", port );
         return ESP_ERR_TIMEOUT;
+    }
+
+    if( _bus_state[ port ].handle == NULL ||
+        _i2c_device_find_by_handle( &_bus_state[ port ], dev_handle, NULL ) == NULL )
+    {
+        core2foraws_i2c_unlock( port );
+        return ESP_ERR_INVALID_STATE;
     }
 
     esp_err_t err;
@@ -466,7 +486,7 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
         return ESP_ERR_INVALID_ARG;
     }
 
-    if( _bus_state[ port ].handle == NULL )
+    if( atomic_load( &_bus_state[ port ].mutex_state ) != I2C_MUTEX_READY )
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -475,6 +495,13 @@ esp_err_t core2foraws_i2c_write( core2foraws_i2c_port_t port,
     {
         ESP_LOGE( _TAG, "I2C write: mutex timeout on port %d", port );
         return ESP_ERR_TIMEOUT;
+    }
+
+    if( _bus_state[ port ].handle == NULL ||
+        _i2c_device_find_by_handle( &_bus_state[ port ], dev_handle, NULL ) == NULL )
+    {
+        core2foraws_i2c_unlock( port );
+        return ESP_ERR_INVALID_STATE;
     }
 
     esp_err_t err;

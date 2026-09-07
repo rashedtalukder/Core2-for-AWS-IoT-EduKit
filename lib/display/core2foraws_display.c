@@ -206,25 +206,31 @@ static esp_err_t _touch_io_new(
  * transaction cannot assert its own CS while the panel is still selected,
  * which is why it is taken here and released in the completion ISR.
  */
-static void _display_flush_start( lv_event_t *event )
+static void _display_flush( lv_display_t *display, const lv_area_t *area,
+                            uint8_t *color_map )
 {
-    (void)event;
-
-    if( core2foraws_common_spi_semaphore == NULL )
+    if( core2foraws_common_spi_semaphore == NULL ||
+        xSemaphoreTake( core2foraws_common_spi_semaphore,
+                        pdMS_TO_TICKS( CORE2FORAWS_SPI_LOCK_TIMEOUT_MS ) ) !=
+        pdTRUE )
     {
+        ESP_LOGE( _TAG, "Shared SPI unavailable; skipping display transfer" );
+        lvgl_port_flush_ready( display );
         return;
     }
 
-    if( xSemaphoreTake( core2foraws_common_spi_semaphore,
-                        pdMS_TO_TICKS( CORE2FORAWS_SPI_LOCK_TIMEOUT_MS ) ) ==
-        pdTRUE )
+    atomic_store( &_flush_holds_spi_lock, true );
+    lv_draw_sw_rgb565_swap( color_map, lv_area_get_size( area ) );
+    esp_err_t err = esp_lcd_panel_draw_bitmap( _panel_handle,
+        area->x1, area->y1, area->x2 + 1, area->y2 + 1, color_map );
+    if( err != ESP_OK )
     {
-        atomic_store( &_flush_holds_spi_lock, true );
-    }
-    else
-    {
-        ESP_LOGE( _TAG, "Shared SPI busy for %ums; flushing unsynchronized",
-                  ( unsigned int ) CORE2FORAWS_SPI_LOCK_TIMEOUT_MS );
+        if( atomic_exchange( &_flush_holds_spi_lock, false ) )
+        {
+            xSemaphoreGive( core2foraws_common_spi_semaphore );
+        }
+        ESP_LOGE( _TAG, "Display transfer failed: 0x%x", err );
+        lvgl_port_flush_ready( display );
     }
 }
 
@@ -373,11 +379,15 @@ static esp_err_t _display_cleanup( void )
      * the display context its callback references is freed. It is not held
      * across teardown: LVGL teardown can re-enter the flush path, and this
      * binary semaphore has no owner tracking to make that re-entry safe. */
-    if( core2foraws_common_spi_semaphore != NULL &&
-        xSemaphoreTake( core2foraws_common_spi_semaphore,
-                        pdMS_TO_TICKS( CORE2FORAWS_SPI_LOCK_TIMEOUT_MS ) ) ==
-        pdTRUE )
+    if( core2foraws_common_spi_semaphore != NULL )
     {
+        if( xSemaphoreTake( core2foraws_common_spi_semaphore,
+                           pdMS_TO_TICKS( CORE2FORAWS_SPI_LOCK_TIMEOUT_MS ) ) !=
+            pdTRUE )
+        {
+            ESP_LOGE( _TAG, "Display teardown timed out waiting for SPI; resources retained" );
+            return ESP_ERR_TIMEOUT;
+        }
         xSemaphoreGive( core2foraws_common_spi_semaphore );
     }
 
@@ -667,9 +677,11 @@ esp_err_t core2foraws_display_init( void )
         },
     };
 
+    lvgl_port_lock( 0 );
     core2foraws_display_ptr = lvgl_port_add_disp( &disp_cfg );
     if( core2foraws_display_ptr == NULL )
     {
+        lvgl_port_unlock();
         ESP_LOGE( _TAG,
                   "Failed to add display to LVGL port. The 2 x %u byte draw "
                   "buffers could not be allocated; lower "
@@ -686,14 +698,15 @@ esp_err_t core2foraws_display_init( void )
         _io_handle, &io_callbacks, core2foraws_display_ptr );
     if( err != ESP_OK )
     {
+        lvgl_port_unlock();
         ESP_LOGE( _TAG, "Failed to register display flush callback: 0x%x",
                   err );
         (void)_display_cleanup();
         return err;
     }
 
-    lv_display_add_event_cb( core2foraws_display_ptr, _display_flush_start,
-                             LV_EVENT_FLUSH_START, NULL );
+    lv_display_set_flush_cb( core2foraws_display_ptr, _display_flush );
+    lvgl_port_unlock();
 
     /* ── 5. Add BSP-owned touch input to LVGL ── */
     lvgl_port_lock( 0 );

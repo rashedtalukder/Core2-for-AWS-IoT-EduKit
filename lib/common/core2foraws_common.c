@@ -85,7 +85,7 @@ esp_err_t core2foraws_common_spi_semaphore_init( void )
     while( atomic_load( &_spi_semaphore_state ) ==
            COMMON_RESOURCE_INITIALIZING )
     {
-        taskYIELD();
+        vTaskDelay( 1 );
     }
 
     return atomic_load( &_spi_semaphore_state ) == COMMON_RESOURCE_READY
@@ -129,7 +129,7 @@ esp_err_t core2foraws_common_spi_bus_init( void )
 
     while( atomic_load( &_spi_bus_state ) == COMMON_RESOURCE_INITIALIZING )
     {
-        taskYIELD();
+        vTaskDelay( 1 );
     }
 
     return atomic_load( &_spi_bus_state ) == COMMON_RESOURCE_READY

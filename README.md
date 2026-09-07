@@ -2,6 +2,25 @@
 
 This repository contains the drivers specific to the [M5Stack Core2 for AWS IoT Kit](https://m5stack.com/products/m5stack-core2-esp32-iot-development-kit-for-aws-iot-edukit) reference Hardware. This BSP is used in the microcontroller tutorials presented in the [AWS IoT Kit](https://aws.amazon.com/iot/edukit) program.
 
+## Repository layout
+
+```text
+core2foraws.c             BSP initialization entry point
+include/                 Public umbrella header
+lib/<module>/            Module implementation, public headers, chip datasheets
+datasheet/               Board schematics and wiring schema
+docs/                    Architecture and dated verification reports
+tests/host/              Native regression cases and runner
+tests/host/mocks/include/ Host-only SDK declarations
+tests/hardware/          Explicitly opted-in standalone ESP-IDF test application
+.claude/rules/           Agent maintenance policies
+```
+
+Start with [the design](docs/design.md), [hardware wiring](datasheet/schema.yml),
+or [test instructions](tests/README.md). Production source and public include
+paths remain stable. Tests and mock headers are never compiled into ordinary
+BSP consumers; generated build/dependency/configuration files stay untracked.
+
 ## Cloning
 
 To clone using HTTPS:
@@ -24,9 +43,9 @@ git clone -b BSP-dev git@github.com:m5stack/Core2-for-AWS-IoT-Kit.git
 
 It is recommended to use the [project template](https://github.com/m5stack/Project_Template-Core2_for_AWS) instead of the BSP directly. The project template contains the application configuration and managed dependencies required by the Core2 for AWS IoT Kit.
 
-This repository is an ESP-IDF component, not a standalone application. The component is built and tested with ESP-IDF v5.3 and v6.0; consuming-application integration is validated with [PlatformIO](https://github.com/platformio/platform-espressif32) `espressif32` v6.9 (ESP-IDF v5.3.1) and v7.0.1 (ESP-IDF v6.0.1). This component does not contain its own `platformio.ini`. Follow the [AWS IoT Kit — Getting Started](https://aws-iot-kit-docs.m5stack.com/en/getting-started/kit) tutorial for environment setup.
+This repository is an ESP-IDF component, not a standalone application. Current validation uses [PlatformIO](https://github.com/platformio/platform-espressif32) `espressif32` 7.1.2 with ESP-IDF 6.1.0. Earlier ESP-IDF 5.3/6.0 validations predate the latest dependency update and have not been repeated. This component does not contain its own `platformio.ini`. Follow the [AWS IoT Kit — Getting Started](https://aws-iot-kit-docs.m5stack.com/en/getting-started/kit) tutorial for environment setup.
 
-`core2foraws_init()` attempts every enabled automatic module after the internal I2C foundation is available and returns `ESP_FAIL` if one or more modules fail. Applications that need module-specific recovery can initialize those modules independently. Wi-Fi initialization returns NVS and network errors without erasing the default NVS partition; `core2foraws_wifi_reset()` clears only persistent Wi-Fi configuration.
+`core2foraws_init()` requires internal I2C and PMU initialization to succeed before attempting downstream peripherals. A failure in either returns its original error immediately. Later enabled automatic modules are attempted and failures are aggregated as `ESP_FAIL`. Applications that need module-specific recovery can initialize those modules independently. Wi-Fi initialization returns NVS and network errors without erasing the default NVS partition; `core2foraws_wifi_reset()` clears only persistent Wi-Fi configuration.
 
 The master `SOFTWARE_BSP_SUPPORT` Kconfig option controls the common layer and all hardware modules. When it is disabled, common APIs are not compiled or exposed and `core2foraws_init()` is a successful no-op.
 
@@ -34,16 +53,28 @@ The internal I2C bus is a permanent, recursively locked board resource. The ATEC
 
 API safety notes for this revision:
 
+- Failed audio/RGB teardown retains owned resources: retry disable/deinit before re-enabling or sending data. This also covers failed initialization rollback.
+- Resetting or reassigning one active I2C/UART expansion pin releases the full pair. Re-register Port A devices after reopening; old handles are invalid.
+- Motion range/cache changes are serialized with scaled reads. This prevents mixed software scale factors, not physical sensor settling after range changes.
+- Direct MCU-rail changes are protected: DCDC1 cannot be disabled or set to anything other than 3350 mV, including through BSP raw PMU helpers. Normal whole-device shutdown remains available through `core2foraws_power_off()` (AXP192 REG32H bit 7), preserving rail/startup configuration for power-key restart. Stop workers, close SD, and commit NVS first. Direct I2C outside the power module is not covered; see [docs/design.md](docs/design.md), section 6.1.
+- Wi-Fi init/start/deinit and provisioning reads share one lifecycle lock. First-use mutex waiters block briefly instead of starving lower-priority initialization tasks.
+- Tests may write the dedicated SD file and NVS namespace, but must not modify secure-element slots, keys, locks, counters, or MCU rail/startup configuration. A supervised normal off/on test is permitted; making the MCU unreachable on restart is not.
 - Use `core2foraws_display_touch_data_get()` instead of reading the raw touch handle; it participates in internal-I2C serialization.
 - Physical touch reads are interrupt-gated and use a BSP-owned 100 ms transport timeout, preventing an unresponsive controller from monopolizing the shared internal-I2C bus.
 - ATECC608 signatures are fixed 64-byte raw P-256 `R || S` values; verification rejects encoded or differently sized signatures with `ESP_ERR_INVALID_SIZE`.
 - `core2foraws_expports_uart_read()` requires the destination buffer capacity before the output byte count.
-- Audio I/O is bounded by `AUDIO_IO_TIMEOUT_MS` and serialized against speaker/microphone disable.
-- `core2foraws_display_deinit()` releases display, touch, and LVGL resources while leaving shared SPI2 available to SD.
+- Audio lock waits and I2S transfers each use `AUDIO_IO_TIMEOUT_MS`, with the correct units for each API, and serialize against speaker/microphone disable.
+- `core2foraws_display_deinit()` retains resources on a SPI-barrier timeout; otherwise it releases display, touch, and LVGL resources while leaving shared SPI2 available to SD.
+- Display flushes skip panel transfers on SPI lock timeout, rather than running unsynchronized. Re-invalidate the affected screen after contention clears.
+- SD close errors are returned; a SPI-blocked close is retained and retried before another SD operation.
 - Guard LVGL object access with `lvgl_port_lock()`, **not** `core2foraws_common_spi_semaphore`. The SPI semaphore is held across the display's DMA transfer; taking it around an LVGL call that can trigger a refresh will deadlock.
 - Every wait on the shared SPI bus is bounded by `CORE2FORAWS_SPI_LOCK_TIMEOUT_MS` (500 ms), so SD APIs can return `ESP_ERR_TIMEOUT` if a display transfer stalls.
 
 ## Internal DRAM budget
+
+Current review results, reproducible tests, and remaining limitations are in
+[hardening review](docs/reviews/2026-09-07-bsp-hardening.md) and [tests/README.md](tests/README.md). Historical performance
+figures below were not re-established by the September 2026 smoke test.
 
 The board has 8 MB of PSRAM but only a small internal DRAM pool, and PSRAM is **not** DMA-addressable. Every DMA-driven BSP buffer — the LVGL draw buffers, audio I2S, shared SPI2, and the SK6812 RMT buffer — must live in internal DRAM. PSRAM is never a fallback for these.
 

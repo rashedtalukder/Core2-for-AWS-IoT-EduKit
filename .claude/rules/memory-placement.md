@@ -129,5 +129,5 @@ Do not set an `LV_MEM`/`mem_custom` pool in PSRAM for this board.
 3. Is it large, CPU-only, and latency-tolerant? → PSRAM is fine and preferred
    to conserve scarce DRAM.
 
-Keep this rule, [.claude/design.md](../design.md) §5, and the display driver in
+Keep this rule, [docs/design.md](../../docs/design.md) §5, and the display driver in
 sync if any of the above changes.

@@ -1,9 +1,6 @@
 **/.pio
 **/.vscode
 **/.DS_Store
-**/.pio
-**/.vscode
-**/.DS_Store
 **/build
 **/build-*
 CMakeLists.txt.user
@@ -20,3 +17,11 @@ _deps
 
 **/__pycache__
 *.py[cod]
+
+**/managed_components/
+**/dependencies.lock
+**/sdkconfig
+**/sdkconfig.old
+**/sdkconfig.*.old
+tests/hardware/sdkconfig.hardware-tests
+tests/hardware/artifacts/

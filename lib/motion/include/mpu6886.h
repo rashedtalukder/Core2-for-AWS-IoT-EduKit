@@ -160,6 +160,9 @@ esp_err_t mpu6886_accel_res_get( acc_scale_t scale, float *resolution );
 /**
  * @brief Set the gyroscope full-scale range.
  *
+ * Register and cached conversion factor update atomically against scaled reads.
+ * A failed transfer leaves the cached range unchanged. Invalid ranges are rejected.
+ *
  * @param[in] scale  Desired full-scale range.
  * @return ESP_OK on success.
  */
@@ -168,6 +171,9 @@ esp_err_t mpu6886_fsr_gyro_set( gyro_scale_t scale );
 /**
  * @brief Set the accelerometer full-scale range.
  *
+ * Register and cached conversion factor update atomically against scaled reads.
+ * A failed transfer leaves the cached range unchanged. Invalid ranges are rejected.
+ *
  * @param[in] scale  Desired full-scale range.
  * @return ESP_OK on success.
  */
@@ -175,6 +181,9 @@ esp_err_t mpu6886_fsr_accel_set( acc_scale_t scale );
 
 /**
  * @brief Read scaled accelerometer data in Gs.
+ *
+ * Holds bus ownership from the register read through conversion. Range changes
+ * cannot interleave with conversion; sensor settling after a change still applies.
  *
  * @param[out] ax  X-axis acceleration in Gs.
  * @param[out] ay  Y-axis acceleration in Gs.
@@ -185,6 +194,9 @@ esp_err_t mpu6886_accel_data_get( float *ax, float *ay, float *az );
 
 /**
  * @brief Read scaled gyroscope data in degrees per second.
+ *
+ * Holds bus ownership from the register read through conversion. Range changes
+ * cannot interleave with conversion; sensor settling after a change still applies.
  *
  * @param[out] gx  X-axis angular rate (deg/s).
  * @param[out] gy  Y-axis angular rate (deg/s).

@@ -43,6 +43,9 @@ static size_t _mount_path_len;
 static StaticSemaphore_t _sd_mutex_storage;
 static SemaphoreHandle_t _sd_mutex = NULL;
 static atomic_uchar _sd_mutex_state;
+static FILE *_pending_close = NULL;
+
+static esp_err_t _sd_file_close( FILE *file );
 
 #define SD_IO_CHUNK_SIZE 4096U
 
@@ -64,15 +67,26 @@ static esp_err_t _sd_lock( void )
         }
         else
         {
-            while( atomic_load( &_sd_mutex_state ) == 1 ) taskYIELD();
+            while( atomic_load( &_sd_mutex_state ) == 1 ) vTaskDelay( 1 );
         }
     }
 
     if( _sd_mutex == NULL ) return ESP_ERR_NO_MEM;
-    return xSemaphoreTake( _sd_mutex,
-                           pdMS_TO_TICKS( SD_LIFECYCLE_TIMEOUT_MS ) ) == pdTRUE
-               ? ESP_OK
-               : ESP_ERR_TIMEOUT;
+    if( xSemaphoreTake( _sd_mutex,
+                       pdMS_TO_TICKS( SD_LIFECYCLE_TIMEOUT_MS ) ) != pdTRUE )
+    {
+        return ESP_ERR_TIMEOUT;
+    }
+    if( _pending_close != NULL )
+    {
+        esp_err_t err = _sd_file_close( _pending_close );
+        if( err != ESP_OK )
+        {
+            xSemaphoreGive( _sd_mutex );
+            return err;
+        }
+    }
+    return ESP_OK;
 }
 
 static void _sd_unlock( void )
@@ -105,6 +119,20 @@ static esp_err_t _sd_spi_lock( void )
 static void _sd_spi_unlock( void )
 {
     xSemaphoreGive( core2foraws_common_spi_semaphore );
+}
+
+static esp_err_t _sd_file_close( FILE *file )
+{
+    esp_err_t err = _sd_spi_lock();
+    if( err != ESP_OK )
+    {
+        _pending_close = file;
+        return err;
+    }
+    int close_result = fclose( file );
+    _pending_close = NULL;
+    _sd_spi_unlock();
+    return close_result == 0 ? ESP_OK : ESP_FAIL;
 }
 
 /**
@@ -197,6 +225,7 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
     {
         return ESP_ERR_INVALID_ARG;
     }
+    message[ 0 ] = '\0';
 
     err = _sd_lock();
     if( err != ESP_OK ) return err;
@@ -264,11 +293,8 @@ esp_err_t core2foraws_sd_read( const char *file_name, char *message, size_t to_r
 cleanup:
     if( f != NULL )
     {
-        if( _sd_spi_lock() == ESP_OK )
-        {
-            fclose( f );
-            _sd_spi_unlock();
-        }
+        esp_err_t close_err = _sd_file_close( f );
+        if( err == ESP_OK ) err = close_err;
     }
 
     free( path );
@@ -353,11 +379,8 @@ esp_err_t core2foraws_sd_write( const char *file_name, const char* message, size
 cleanup:
     if( f != NULL )
     {
-        if( _sd_spi_lock() == ESP_OK )
-        {
-            fclose( f );
-            _sd_spi_unlock();
-        }
+        esp_err_t close_err = _sd_file_close( f );
+        if( err == ESP_OK ) err = close_err;
     }
 
     free( path );

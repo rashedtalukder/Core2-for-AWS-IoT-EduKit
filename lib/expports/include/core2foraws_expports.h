@@ -283,6 +283,12 @@ esp_err_t core2foraws_expports_digital_write( gpio_num_t pin, const bool level )
 /**
  * @brief Resets the specified pin.
  *
+ * Resetting either active Port A I2C pin closes the bus and releases both pins
+ * and all accessory handles. Resetting either active Port C UART pin deletes
+ * UART2 and releases both pins. Digital mode changes have the same pair-wide
+ * effect. A peripheral-delete failure leaves both pin modes/routing intact
+ * for retry. Re-register I2C devices after reopening; do not reuse old handles.
+ *
  * This function is used to reset the pin configuration to either 
  * save memory or to use the pin for another compatible purpose 
  * (e.g. depending on the pin — read, ADC, DAC, I2C, UART, etc.), 
@@ -320,6 +326,10 @@ esp_err_t core2foraws_expports_pin_reset( gpio_num_t pin );
 
 /**
  * @brief Configures expansion port A for use with an I2C peripheral.
+ *
+ * Releases prior GPIO modes on both pins before creating the bus. Repeating
+ * begin on an already-open pair preserves its managed devices. Serialize raw
+ * bus use through the BSP; bypassing the port manager's ownership is unsupported.
  *  
  * Configures the pin to use I2C.
  * 
@@ -807,6 +817,9 @@ esp_err_t core2foraws_expports_dac_mv_write( const uint16_t dac_mvolts );
  * @brief Configures the UART interface on for @ref 
  * PORT_C_UART_RX_PIN (GPIO 13) and @ref PORT_C_UART_TX_PIN (GPIO 14)
  * at the specified baud rate.
+ *
+ * Prepares both pins before installing UART2 and restores both routes on every
+ * begin, including retries. Reset either pin to close the complete UART pair.
  *
  * This is a helper function to simplify building applications
  * with UART. It preconfigures the UART communications with 8 bit 

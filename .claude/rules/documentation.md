@@ -19,7 +19,7 @@ task**. Do not leave docs to "a follow-up."
    Doxygen block (brief, parameters, return values, notes, and any `@code`
    examples) to match. Keep the `/* @[declare_...] */` marker pairs intact so
    the generated docs keep working.
-2. **The design document** — [.claude/design.md](../design.md). Governed in
+2. **The design document** — [docs/design.md](../../docs/design.md). Governed in
    detail by [.claude/rules/design-doc.md](design-doc.md); follow that rule for
    init flow, module catalog, shared-resource, power, build, and pin sections.
 3. **README** — [README.md](../../README.md). Update it when you change

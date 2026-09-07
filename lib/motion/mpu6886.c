@@ -13,6 +13,7 @@
  */
 
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <esp_log.h>
 
 #include "core2foraws_i2c.h"
@@ -326,34 +327,40 @@ esp_err_t mpu6886_accel_res_get( acc_scale_t scale, float *resolution )
 
 esp_err_t mpu6886_fsr_gyro_set( gyro_scale_t scale )
 {
+    if( scale < MPU6886_GFS_250DPS || scale > MPU6886_GFS_2000DPS )
+        return ESP_ERR_INVALID_ARG;
+    esp_err_t err = core2foraws_i2c_lock( _i2c_port );
+    if( err != ESP_OK ) return err;
     uint8_t regdata = ( scale << 3 );
 
-    esp_err_t err = write_reg( MPU6886_GYRO_CONFIG, regdata );
-    if ( err != ESP_OK )
+    err = write_reg( MPU6886_GYRO_CONFIG, regdata );
+    if ( err == ESP_OK )
     {
-        return err;
+        gyro_scale = scale;
+        mpu6886_gyro_res_get( scale, &gyro_res );
     }
 
-    gyro_scale = scale;
-    mpu6886_gyro_res_get( scale, &gyro_res );
-
-    return ESP_OK;
+    esp_err_t unlock_err = core2foraws_i2c_unlock( _i2c_port );
+    return err != ESP_OK ? err : unlock_err;
 }
 
 esp_err_t mpu6886_fsr_accel_set( acc_scale_t scale )
 {
+    if( scale < MPU6886_AFS_2G || scale > MPU6886_AFS_16G )
+        return ESP_ERR_INVALID_ARG;
+    esp_err_t err = core2foraws_i2c_lock( _i2c_port );
+    if( err != ESP_OK ) return err;
     uint8_t regdata = ( scale << 3 );
 
-    esp_err_t err = write_reg( MPU6886_ACCEL_CONFIG, regdata );
-    if ( err != ESP_OK )
+    err = write_reg( MPU6886_ACCEL_CONFIG, regdata );
+    if ( err == ESP_OK )
     {
-        return err;
+        acc_scale = scale;
+        mpu6886_accel_res_get( scale, &acc_res );
     }
 
-    acc_scale = scale;
-    mpu6886_accel_res_get( scale, &acc_res );
-
-    return ESP_OK;
+    esp_err_t unlock_err = core2foraws_i2c_unlock( _i2c_port );
+    return err != ESP_OK ? err : unlock_err;
 }
 
 /* ------------------------------------------------------------------ */
@@ -362,8 +369,11 @@ esp_err_t mpu6886_fsr_accel_set( acc_scale_t scale )
 
 esp_err_t mpu6886_accel_data_get( float *ax, float *ay, float *az )
 {
+    if( ax == NULL || ay == NULL || az == NULL ) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = core2foraws_i2c_lock( _i2c_port );
+    if( err != ESP_OK ) return err;
     int16_t raw_x = 0, raw_y = 0, raw_z = 0;
-    esp_err_t err = mpu6886_adc_accel_get( &raw_x, &raw_y, &raw_z );
+    err = mpu6886_adc_accel_get( &raw_x, &raw_y, &raw_z );
 
     if ( err == ESP_OK )
     {
@@ -372,13 +382,17 @@ esp_err_t mpu6886_accel_data_get( float *ax, float *ay, float *az )
         *az = ( float )raw_z * acc_res;
     }
 
-    return err;
+    esp_err_t unlock_err = core2foraws_i2c_unlock( _i2c_port );
+    return err != ESP_OK ? err : unlock_err;
 }
 
 esp_err_t mpu6886_gyro_data_get( float *gx, float *gy, float *gz )
 {
+    if( gx == NULL || gy == NULL || gz == NULL ) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = core2foraws_i2c_lock( _i2c_port );
+    if( err != ESP_OK ) return err;
     int16_t raw_x = 0, raw_y = 0, raw_z = 0;
-    esp_err_t err = mpu6886_adc_gyro_get( &raw_x, &raw_y, &raw_z );
+    err = mpu6886_adc_gyro_get( &raw_x, &raw_y, &raw_z );
 
     if ( err == ESP_OK )
     {
@@ -387,7 +401,8 @@ esp_err_t mpu6886_gyro_data_get( float *gx, float *gy, float *gz )
         *gz = ( float )raw_z * gyro_res;
     }
 
-    return err;
+    esp_err_t unlock_err = core2foraws_i2c_unlock( _i2c_port );
+    return err != ESP_OK ? err : unlock_err;
 }
 
 esp_err_t mpu6886_temp_data_get( float *t )

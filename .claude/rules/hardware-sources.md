@@ -89,7 +89,7 @@ Notes:
 3. Read the relevant peripheral Markdown and original source (table above).
 4. Make the code change consistent with both.
 5. Per [.claude/rules/design-doc.md](design-doc.md), update
-   [.claude/design.md](../design.md) if the change affects anything the design
+   [docs/design.md](../../docs/design.md) if the change affects anything the design
    doc describes.
 
 ## What not to do

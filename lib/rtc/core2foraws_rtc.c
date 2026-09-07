@@ -212,7 +212,7 @@ static time_t _tm_utc_to_epoch( const struct tm *tm_time )
       ( 153 * ( ( month > 2 ) ? ( month - 3 ) : ( month + 9 ) ) + 2 ) / 5 +
       day - 1;                                            // [0, 365]
   unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;   // [0, 146096]
-  long days_since_epoch = (long)era * 146097 + (long)doe - 719468;
+  int64_t days_since_epoch = (int64_t)era * 146097 + (int64_t)doe - 719468;
 
   return (time_t)( days_since_epoch * 86400L +
                    tm_time->tm_hour * 3600L + tm_time->tm_min * 60L +
@@ -418,10 +418,9 @@ esp_err_t core2foraws_rtc_utc_time_set( const struct tm time )
     return ESP_ERR_INVALID_ARG;
   }
 
-  int year = time.tm_year + 1900;
-  if( year < 1900 || year > 2099 )
+  if( time.tm_year < 0 || time.tm_year > 199 )
   {
-    ESP_LOGE( _TAG, "Year %d out of supported range (1900-2099)", year );
+    ESP_LOGE( _TAG, "tm_year %d out of supported range (0-199)", time.tm_year );
     return ESP_ERR_INVALID_ARG;
   }
 

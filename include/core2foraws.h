@@ -102,7 +102,8 @@ extern "C"
   * The speaker, microphone (audio), SD card, and expansion-port sessions
   * need to be initialized separately as needed.
   *
-  * The internal I2C foundation returns immediately on failure. Later module
+  * Internal I2C or PMU failure returns its original error immediately, without
+  * attempting downstream peripherals. Later module
   * failures are logged and aggregated so every remaining module is attempted;
   * the final return is ESP_FAIL if any of them failed. Applications that need
   * the original module error can call that module's init function directly.
@@ -112,6 +113,7 @@ extern "C"
    * [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.2/esp32/api-reference/system/esp_err.html#macros).
    *  - ESP_OK    : Success
    *  - ESP_FAIL  : Failed to initialize one or more features
+  *  - Other     : Original internal-I2C or PMU initialization error
    */
   /* @[declare_core2foraws_init] */
   esp_err_t core2foraws_init( void );

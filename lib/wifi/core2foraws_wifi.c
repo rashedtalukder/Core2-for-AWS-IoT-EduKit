@@ -78,6 +78,7 @@ static esp_err_t _device_service_name_set( void );
 static esp_err_t _wifi_prov_qr_print( void );
 static esp_err_t _core2foraws_wifi_start_locked( void );
 static esp_err_t _core2foraws_wifi_deinit_locked( void );
+static esp_err_t _wifi_prov_str_get_locked( char *wifi_prov_str );
 
 static esp_err_t _wifi_lifecycle_lock( void )
 {
@@ -95,7 +96,7 @@ static esp_err_t _wifi_lifecycle_lock( void )
         else
         {
             while( atomic_load( &_wifi_lifecycle_mutex_state ) == 1 )
-                taskYIELD();
+                vTaskDelay( 1 );
         }
     }
 
@@ -241,7 +242,7 @@ static esp_err_t _device_service_name_set( void )
 static esp_err_t _wifi_prov_qr_print( void )
 {
     char provisioning_payload[ WIFI_PROV_STR_LEN ] = { 0 };
-    esp_err_t err = core2foraws_wifi_prov_str_get( provisioning_payload );
+    esp_err_t err = _wifi_prov_str_get_locked( provisioning_payload );
 
     if ( err == ESP_OK )
     {
@@ -254,7 +255,7 @@ static esp_err_t _wifi_prov_qr_print( void )
     return err;
 }
 
-esp_err_t core2foraws_wifi_init( void )
+static esp_err_t _core2foraws_wifi_init_locked( void )
 {
     if ( _wifi_initialized )
     {
@@ -359,6 +360,15 @@ cleanup:
     vEventGroupDelete( wifi_event_group );
     wifi_event_group = NULL;
 
+    return err;
+}
+
+esp_err_t core2foraws_wifi_init( void )
+{
+    esp_err_t err = _wifi_lifecycle_lock();
+    if( err != ESP_OK ) return err;
+    err = _core2foraws_wifi_init_locked();
+    _wifi_lifecycle_unlock();
     return err;
 }
 
@@ -621,7 +631,7 @@ esp_err_t core2foraws_wifi_reset( void )
     return esp_wifi_restore();
 }
 
-esp_err_t core2foraws_wifi_prov_str_get( char *wifi_prov_str )
+static esp_err_t _wifi_prov_str_get_locked( char *wifi_prov_str )
 {
     if ( wifi_prov_str == NULL )
     {
@@ -656,4 +666,15 @@ esp_err_t core2foraws_wifi_prov_str_get( char *wifi_prov_str )
     }
 
     return core2foraws_common_error( err );
+}
+
+esp_err_t core2foraws_wifi_prov_str_get( char *wifi_prov_str )
+{
+    if( wifi_prov_str == NULL ) return ESP_ERR_INVALID_ARG;
+    wifi_prov_str[ 0 ] = '\0';
+    esp_err_t err = _wifi_lifecycle_lock();
+    if( err != ESP_OK ) return err;
+    err = _wifi_prov_str_get_locked( wifi_prov_str );
+    _wifi_lifecycle_unlock();
+    return err;
 }

@@ -118,6 +118,8 @@ extern EventGroupHandle_t wifi_event_group;
  * @note This function is automatically called by @ref core2foraws_init if the feature
  * is enabled. Repeating it after successful initialization returns ESP_OK
  * without recreating the netif, event group, or event handlers.
+ * Initialization, start, deinit, and provisioning-string retrieval share the
+ * lifecycle mutex. A competing lifecycle call can return ESP_ERR_TIMEOUT.
  * 
  * This function will initialize all required hardware for BLE provisioning process to 
  * collect Wi-Fi credentials using the 
@@ -456,12 +458,15 @@ esp_err_t core2foraws_wifi_reset( void );
  * possession have not been generated and this returns `ESP_ERR_INVALID_STATE`.
  *
  * @param[out] wifi_prov_str The pointer to the wifi provisioning string.
+ * The buffer is cleared before locking. Retrieval is serialized against
+ * teardown, so the service-name mutex cannot be deleted during this call.
  * @return 
  *  - [esp_err_t](https://docs.espressif.com/projects/esp-idf/en/release-v4.3/esp32/api-reference/system/esp_err.html#macros).
  *  - ESP_OK                : Success
  *  - ESP_ERR_INVALID_ARG   : @p wifi_prov_str is `NULL`
  *  - ESP_ERR_INVALID_STATE : No provisioning session; call @ref core2foraws_wifi_start first
  *  - ESP_FAIL              : Failed to retrieve the Wi-Fi provisioning string
+ *  - ESP_ERR_TIMEOUT       : Lifecycle mutex was not available in time
  */
 /* @[declare_core2foraws_wifi_prov_str_get] */
 esp_err_t core2foraws_wifi_prov_str_get( char *wifi_prov_str );

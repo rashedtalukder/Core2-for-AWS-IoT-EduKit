@@ -58,6 +58,22 @@ static int32_t _axp192_i2c_write( void *handle, uint8_t address, uint8_t reg,
 {
     (void)handle;
     (void)address;
+        if( buffer == NULL || size == 0 || size > 256U - reg )
+        {
+                return ESP_ERR_INVALID_ARG;
+        }
+        for( uint16_t offset = 0; offset < size; ++offset )
+        {
+                uint16_t target_reg = reg + offset;
+                uint8_t value = buffer[ offset ];
+                if( ( target_reg == AXP192_DCDC13_LDO23_CONTROL &&
+                            ( value & 0x01U ) == 0 ) ||
+                        ( target_reg == AXP192_DCDC1_VOLTAGE &&
+                            ( value & 0x7fU ) != ( POWER_MCU_MILLIVOLTS - 700U ) / 25U ) )
+                {
+                        return ESP_ERR_NOT_SUPPORTED;
+                }
+        }
     return ( int32_t )core2foraws_i2c_write( COMMON_I2C_INTERNAL, _axp192_dev,
                                              ( uint32_t )reg, buffer, size );
 }
@@ -191,7 +207,7 @@ esp_err_t core2foraws_power_init( void )
     else if ( ret == ESP_OK )
         ret = err;
 
-    err = core2foraws_power_rail_mv_set( POWER_RAIL_ESP32, 3350 );
+    err = core2foraws_power_rail_mv_set( POWER_RAIL_ESP32, POWER_MCU_MILLIVOLTS );
     if ( err == ESP_OK )
         err = core2foraws_power_rail_state_set( POWER_RAIL_ESP32, true );
     if ( err == ESP_OK )
@@ -456,9 +472,6 @@ esp_err_t core2foraws_power_plugged_get( bool *status )
 
 esp_err_t core2foraws_power_off( void )
 {
-    /* REG32H bit 7 requests the AXP192 to shut down all rails. This is the
-     * same path the PEK long-press triggers (configured during init). Once
-     * set, the ESP32 loses power, so this call does not return on success. */
     return core2foraws_power_axp_twiddle( AXP192_SHUTDOWN_BATTERY_CHGLED_CONTROL,
                                           AXP192_POWER_OFF_REQUEST,
                                           AXP192_POWER_OFF_REQUEST );
@@ -472,8 +485,7 @@ esp_err_t core2foraws_power_axp_reg_get( uint8_t reg, uint8_t *buffer )
 
 esp_err_t core2foraws_power_axp_reg_set( uint8_t reg, uint8_t value )
 {
-	return core2foraws_i2c_write( COMMON_I2C_INTERNAL, _axp192_dev,
-	                             ( uint32_t )reg, &value, 1 );
+    return ( esp_err_t )_axp192_i2c_write( NULL, AXP192_ADDRESS, reg, &value, 1 );
 }
 
 esp_err_t core2foraws_power_axp_read( uint8_t reg, void *buffer )
@@ -554,6 +566,10 @@ esp_err_t core2foraws_power_rail_state_get( power_rail_t rail, bool *enabled )
 
 esp_err_t core2foraws_power_rail_state_set( power_rail_t rail, bool enabled )
 {
+    if( rail == POWER_RAIL_ESP32 && !enabled )
+    {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     uint8_t mask;
 
     switch ( rail )
@@ -621,6 +637,10 @@ esp_err_t core2foraws_power_rail_mv_get( power_rail_t rail, uint16_t *millivolts
 
 esp_err_t core2foraws_power_rail_mv_set( power_rail_t rail, uint16_t millivolts )
 {
+    if( rail == POWER_RAIL_ESP32 && millivolts != POWER_MCU_MILLIVOLTS )
+    {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     uint8_t steps;
 
     if ( ( rail < POWER_RAIL_DCDC1 ) || ( rail >= POWER_RAIL_COUNT ) )

@@ -22,8 +22,8 @@ extern "C" {
  * These mirror the legacy i2c_manager flags for backward compatibility
  * with existing driver code.
  */
-#define CORE2FORAWS_I2C_NO_REG  ( 1 << 30 )
-#define CORE2FORAWS_I2C_REG_16  ( 1 << 31 )
+#define CORE2FORAWS_I2C_NO_REG  ( 1U << 30 )
+#define CORE2FORAWS_I2C_REG_16  ( 1U << 31 )
 
 /**
  * @brief I2C bus port identifiers.
@@ -64,7 +64,9 @@ esp_err_t core2foraws_i2c_deinit( core2foraws_i2c_port_t port );
  *
  * This is an integration escape hatch for drivers such as `esp_lcd_touch`.
  * Any transaction issued through the raw handle must still be enclosed by
- * core2foraws_i2c_lock()/core2foraws_i2c_unlock().
+ * core2foraws_i2c_lock()/core2foraws_i2c_unlock(). For an external bus, acquire
+ * that outer lock before retrieving the handle and retain it through use so
+ * another task cannot close the bus in between.
  *
  * @param[in]  port   The I2C bus port.
  * @param[out] handle Pointer to receive the bus handle.
@@ -95,7 +97,8 @@ esp_err_t core2foraws_i2c_device_add( core2foraws_i2c_port_t port,
  * @brief Release a previously registered managed I2C device.
  *
  * The underlying ESP-IDF device is removed when its final reference is
- * released.
+ * released. A failed removal preserves that reference so it can be retried.
+ * Do not reuse a released handle, including after closing/reopening a bus.
  *
  * @param[in] dev_handle The device handle to remove.
  * @return ESP_OK on success.
@@ -105,7 +108,9 @@ esp_err_t core2foraws_i2c_device_remove( i2c_master_dev_handle_t dev_handle );
 /**
  * @brief Thread-safe read from an I2C device register.
  *
- * Acquires the recursive bus mutex before performing the transaction.
+ * Acquires the recursive bus mutex and verifies that the device is still
+ * registered on this bus before performing the transaction. A closed bus or
+ * unregistered device returns ESP_ERR_INVALID_STATE.
  * Handles CORE2FORAWS_I2C_NO_REG and CORE2FORAWS_I2C_REG_16 flags in the register address.
  *
  * @param[in]  port         The I2C bus port.
@@ -124,7 +129,9 @@ esp_err_t core2foraws_i2c_read( core2foraws_i2c_port_t port,
 /**
  * @brief Thread-safe write to an I2C device register.
  *
- * Acquires the recursive bus mutex before performing the transaction.
+ * Acquires the recursive bus mutex and verifies that the device is still
+ * registered on this bus before performing the transaction. A closed bus or
+ * unregistered device returns ESP_ERR_INVALID_STATE.
  * Handles CORE2FORAWS_I2C_NO_REG and CORE2FORAWS_I2C_REG_16 flags in the register address.
  *
  * @param[in] port       The I2C bus port.
