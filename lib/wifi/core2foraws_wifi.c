@@ -62,6 +62,7 @@ static esp_netif_t *_wifi_netif = NULL;
 static SemaphoreHandle_t _service_name_mutex = NULL;
 static bool _wifi_initialized = false;
 static atomic_bool _wifi_started;
+static atomic_bool _scan_only;
 static atomic_bool _provisioning_active;
 static StaticSemaphore_t _wifi_lifecycle_mutex_storage;
 static SemaphoreHandle_t _wifi_lifecycle_mutex = NULL;
@@ -192,7 +193,7 @@ static void _on_wifi_start( void *esp_netif, esp_event_base_t event_base, int32_
 {
     ESP_LOGI( _TAG, "\tStarting Wi-Fi... %ld", (long)event_id );
     xEventGroupSetBits( wifi_event_group, WIFI_DISCONNECTED_BIT );
-    esp_wifi_connect();
+    if (!atomic_load(&_scan_only)) esp_wifi_connect();
 }
 
 static void _on_wifi_connect( void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data )
@@ -206,6 +207,7 @@ static void _on_wifi_disconnect( void *arg, esp_event_base_t event_base, int32_t
     xEventGroupClearBits( wifi_event_group, WIFI_CONNECTED_BIT );
     xEventGroupSetBits( wifi_event_group, WIFI_DISCONNECTED_BIT );
 
+    if (atomic_load(&_scan_only)) return;
     esp_err_t err = esp_wifi_connect();
     if ( err != ESP_OK )
     {
@@ -378,6 +380,13 @@ static esp_err_t _core2foraws_wifi_start_locked( void )
     {
         return ESP_ERR_INVALID_STATE;
     }
+    if (atomic_load(&_scan_only) && atomic_load(&_wifi_started))
+    {
+        esp_err_t stop_err = esp_wifi_stop();
+        if (stop_err != ESP_OK) return stop_err;
+        atomic_store(&_wifi_started, false);
+    }
+    atomic_store(&_scan_only, false);
     if( atomic_load( &_wifi_started ) )
     {
         return ESP_OK;
@@ -535,6 +544,30 @@ esp_err_t core2foraws_wifi_start( void )
     esp_err_t err = _wifi_lifecycle_lock();
     if( err != ESP_OK ) return err;
     err = _core2foraws_wifi_start_locked();
+    _wifi_lifecycle_unlock();
+    return err;
+}
+
+esp_err_t core2foraws_wifi_scan(wifi_ap_record_t *records, uint16_t *count)
+{
+    if (records == NULL || count == NULL || *count == 0) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = _wifi_lifecycle_lock();
+    if (err != ESP_OK) return err;
+    if (!_wifi_initialized || atomic_load(&_provisioning_active)) {
+        err = ESP_ERR_INVALID_STATE;
+        goto done;
+    }
+    if (!atomic_load(&_wifi_started)) {
+        atomic_store(&_scan_only, true);
+        err = esp_wifi_set_mode(WIFI_MODE_STA);
+        if (err == ESP_OK) err = esp_wifi_start();
+        if (err != ESP_OK) goto done;
+        atomic_store(&_wifi_started, true);
+    }
+    err = esp_wifi_scan_start(NULL, true);
+    if (err == ESP_OK) err = esp_wifi_scan_get_ap_records(count, records);
+    if (err != ESP_OK) esp_wifi_clear_ap_list();
+done:
     _wifi_lifecycle_unlock();
     return err;
 }

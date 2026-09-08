@@ -45,6 +45,8 @@
 #define I2S_DATA_PIN 2
 #define I2S_DATA_IN_PIN 34
 #define NS4168_SHUTDOWN_HOLD_US 110
+#define AUDIO_DMA_DESCRIPTORS 4
+#define AUDIO_DMA_FRAMES 128
 
 /* The SPM1423 PDM microphone is only valid while its clock stays within
    1.0 MHz - 3.25 MHz (see lib/audio/datasheet/SPM1423.md, sections 11.1
@@ -200,6 +202,12 @@ esp_err_t core2foraws_audio_speaker_write( const uint8_t *sound_buffer, size_t t
     return err;
 }
 
+esp_err_t core2foraws_audio_speaker_drain(void)
+{
+    static const uint8_t silence[(AUDIO_DMA_DESCRIPTORS + 1) * AUDIO_DMA_FRAMES * 4] = {0};
+    return core2foraws_audio_speaker_write(silence, sizeof(silence));
+}
+
 esp_err_t core2foraws_audio_mic_read( int8_t *sound_buffer, size_t to_read_length , size_t *was_read_length )
 {
     if ( was_read_length != NULL )
@@ -279,8 +287,8 @@ static esp_err_t _core2foraws_audio_speaker_install( void )
        This way the amp receives valid silence (zeroed DMA buffers)
        the moment it exits shutdown, which prevents an audible pop. */
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG( I2S_NUM_0, I2S_ROLE_MASTER );
-    chan_cfg.dma_desc_num  = 4;
-    chan_cfg.dma_frame_num = 128;
+    chan_cfg.dma_desc_num  = AUDIO_DMA_DESCRIPTORS;
+    chan_cfg.dma_frame_num = AUDIO_DMA_FRAMES;
     chan_cfg.auto_clear    = true;
 
     err = i2s_new_channel( &chan_cfg, &_tx_handle, NULL );

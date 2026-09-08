@@ -87,6 +87,13 @@ extern "C" {
  */
 /* @[declare_core2foraws_audio_speaker_enable] */
 esp_err_t core2foraws_audio_speaker_enable( bool state );
+
+/** Enqueue silence exceeding the TX DMA ring (including both 16-bit slots).
+ * After success all previously accepted samples have played, though trailing
+ * silence may remain. Call before disabling the speaker, with no other writer.
+ * Propagates write timeout/short-write errors; does not disable the channel.
+ */
+esp_err_t core2foraws_audio_speaker_drain(void);
 /* @[declare_core2foraws_audio_speaker_enable] */
 
 /**

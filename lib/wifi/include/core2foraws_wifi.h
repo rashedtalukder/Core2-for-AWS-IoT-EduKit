@@ -39,6 +39,13 @@ extern "C" {
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
+#include <esp_wifi.h>
+
+/** Blocking scan serialized with start/deinit. count is capacity in, length out.
+ * Starts an idle radio in scan-only mode without connecting or provisioning.
+ * core2foraws_wifi_start() subsequently switches to normal connection mode.
+ */
+esp_err_t core2foraws_wifi_scan(wifi_ap_record_t *records, uint16_t *count);
 
 /**
  * @brief The FreeRTOS event group bit for the device being in a Wi-Fi connected state.

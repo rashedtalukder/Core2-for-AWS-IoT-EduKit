@@ -15,6 +15,7 @@ static esp_err_t enable_error;
 static esp_err_t power_error;
 static unsigned int disable_calls;
 static unsigned int pin_resets;
+static size_t last_write_size;
 
 SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t *storage) { return storage; }
 BaseType_t xSemaphoreTake(SemaphoreHandle_t mutex, TickType_t timeout)
@@ -92,6 +93,7 @@ esp_err_t i2s_channel_write(i2s_chan_handle_t channel, const void *data, size_t 
 {
     assert(channel->enabled && data != NULL && timeout_ms == 1000);
     assert(_audio_mutex->depth == 1);
+    last_write_size = size;
     *written = short_write ? size / 2 : size;
     return transfer_error;
 }
@@ -115,7 +117,10 @@ int main(void)
     assert(core2foraws_audio_speaker_enable(true) == ESP_OK);
     assert(core2foraws_audio_mic_enable(true) == ESP_ERR_INVALID_STATE);
     assert(core2foraws_audio_speaker_write(data, sizeof(data)) == ESP_OK);
+    assert(core2foraws_audio_speaker_drain() == ESP_OK);
+    assert(last_write_size > AUDIO_DMA_DESCRIPTORS * AUDIO_DMA_FRAMES * 4);
     short_write = true;
+    assert(core2foraws_audio_speaker_drain() == ESP_FAIL);
     assert(core2foraws_audio_speaker_write(data, sizeof(data)) == ESP_FAIL);
     transfer_error = ESP_ERR_TIMEOUT;
     assert(core2foraws_audio_speaker_write(data, sizeof(data)) == ESP_ERR_TIMEOUT);
